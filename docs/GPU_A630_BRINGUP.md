@@ -1,6 +1,6 @@
 # Adreno 630 bring-up on the Poco F1 (GPU phase 1)
 
-This document describes the Beryllium-only Adreno 630 path. Surya has a separate Adreno 618 read-only probe in `xnu/patches-11215/0257-surya-adreno618-readonly-probe.patch`; it accepts only `sweetgpu=1` and does not reuse these write stages. See `docs/SURYA_PORT.md` for its scope and remaining GPU work.
+This document describes the Beryllium-only Adreno 630 path. Surya has a separate staged Adreno 618 bring-up in patches 0257 and 0259; it has Surya-specific GMU/PDC/HFI/GX/ZAP values and does not reuse the Beryllium write stages. It stops before CP command submission and remains unbuilt and unverified. See `docs/SURYA_PORT.md` for stage order and firmware packaging.
 
 Kernel patch `xnu/patches/0103-beryllium-gpu-a630-bringup.patch` (on top of 0102): `bsd/dev/sweet_a630.c` (stages 1-7), `bsd/dev/sweet_a630_pas.c` (TrustZone PAS zap loader), the hook `sweet_a630_probe()` after `sweet_usb_probe()` in `sweet_ufs.c`, two lines in `bsd/conf/files`, and the 64-bit fix of `pmap_sync_page_attributes_phys` in `osfmk/arm/pmap/pmap.c`.
 Off by default: nothing runs unless the boot-arg `sweetgpu=N` is given (N = 1..7, larger is clamped), and only when the ADT root compatible is `xiaomi,beryllium`. Every log line starts with `SWEET GPU:`. See also `GPU_KERNEL.md` (stage 8: keep-up + IOKit user client, xnu-11215 patches 0180-0182).

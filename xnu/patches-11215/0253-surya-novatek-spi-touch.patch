@@ -20,10 +20,10 @@ diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
  	}
 diff --git a/bsd/dev/sweet_surya_touch.c b/bsd/dev/sweet_surya_touch.c
 new file mode 100644
-index 0000000..9666ed4
+index 0000000000000000000000000000000000000000..19494d905ae79b7bf2118051b3d9f996dbeb5caa
 --- /dev/null
 +++ b/bsd/dev/sweet_surya_touch.c
-@@ -0,0 +1,842 @@
+@@ -0,0 +1,906 @@
 +/*
 + * Surya Poco X3 NFC Novatek NT36672C SPI touchscreen for XNU.
 + *
@@ -36,8 +36,10 @@ index 0000000..9666ed4
 + * reads GENI/GCC; stage 3 enables QUP0 clocks and applies the four QUP00 pad
 + * settings; stage 4 performs the documented Novatek software bootloader reset
 + * and trim-ID read; stage 5 requires sweettouchfw=1 and downloads the optional
-+ * firmware property to controller SRAM, then polls reports. No PMIC or panel
-+ * reset writes are issued. The firmware and all controller writes are opt-in.
++ * firmware property to controller SRAM, then polls reports. The shared L18A
++ * touchscreen/panel rail is enabled only in stages 3-5 and left on. The reset
++ * and IRQ pads use the Surya pinctrl settings; GPIO8 follows Xiaomi's sequence
++ * (drive low, engine reset, drive high) before the trim probe.
 + */
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +#include <sys/param.h>
@@ -54,6 +56,7 @@ index 0000000..9666ed4
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +extern kern_return_t thread_terminate(thread_t);
 +extern void sweet_hid_touch(int finger, int down, int x, int y);
++extern int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
 +
 +#define SURYA_TOUCH_SE_PA       0x00880000u
 +#define SURYA_TOUCH_GCC_PA      0x00100000u
@@ -64,6 +67,11 @@ index 0000000..9666ed4
 +
 +#define SURYA_GPIO_CFG(n)       ((uint32_t)(n) * 0x1000u)
 +#define SURYA_GPIO_IO(n)        (SURYA_GPIO_CFG(n) + 4u)
++#define SURYA_GPIO_PULL_UP      3u
++#define SURYA_GPIO_DRIVE_16MA   7u
++#define SURYA_GPIO_OUTPUT_EN    (1u << 9)
++#define SURYA_GPIO_OUTPUT       (1u << 0)
++#define SURYA_GPIO_INPUT        (1u << 1)
 +#define SURYA_TOUCH_RESET_GPIO  8u
 +#define SURYA_TOUCH_IRQ_GPIO    9u
 +#define SURYA_TOUCH_SPI_FIRST   49u
@@ -133,6 +141,7 @@ index 0000000..9666ed4
 +
 +/* NT36672C on Surya follows Xiaomi's NT36672A-family register map. */
 +#define NVT_SWRST_N8_ADDR       0x03f0feu
++#define NVT_ENG_RST_ADDR        0x7fff80u
 +#define NVT_SPI_RD_FAST_ADDR    0x03f310u
 +#define NVT_TRIM_ID_ADDR        0x01f64eu
 +#define NVT_TRIM_ID_LEN         6u
@@ -149,7 +158,7 @@ index 0000000..9666ed4
 +#define NVT_DLM_GCRC_ADDR       0x03f104u
 +#define NVT_RESET_STATE_INIT    0xa0u
 +#define NVT_RESET_STATE_MAX     0xafu
-+#define NVT_REPORT_BYTES        64u
++#define NVT_REPORT_BYTES        65u
 +#define NVT_FW_SECTOR           4096u
 +#define NVT_FW_CHUNK            4096u
 +#define NVT_FW_MAX_SIZE         (2u * 1024u * 1024u)
@@ -224,6 +233,40 @@ index 0000000..9666ed4
 +		    touch_rd(st.tlmm, SURYA_GPIO_CFG(pin)),
 +		    touch_rd(st.tlmm, SURYA_GPIO_IO(pin)));
 +	}
++}
++
++/* Match Xiaomi's TLMM states: GPIO9 input/pull-up; GPIO8 output, initially low. */
++static void
++touch_gpio_input(unsigned gpio)
++{
++	uint32_t off = SURYA_GPIO_CFG(gpio);
++	uint32_t cfg = touch_rd(st.tlmm, off);
++	cfg &= ~0x3ffu;
++	cfg |= SURYA_GPIO_PULL_UP | (SURYA_GPIO_DRIVE_16MA << 6);
++	touch_wr(st.tlmm, off, cfg);
++}
++
++static void
++touch_gpio_output(unsigned gpio, bool high)
++{
++	uint32_t off = SURYA_GPIO_CFG(gpio);
++	uint32_t io = touch_rd(st.tlmm, SURYA_GPIO_IO(gpio));
++	uint32_t cfg = touch_rd(st.tlmm, off);
++	io = high ? (io | SURYA_GPIO_OUTPUT) : (io & ~SURYA_GPIO_OUTPUT);
++	touch_wr(st.tlmm, SURYA_GPIO_IO(gpio), io);
++	cfg &= ~0x3ffu;
++	cfg |= SURYA_GPIO_PULL_UP | (SURYA_GPIO_DRIVE_16MA << 6) |
++	    SURYA_GPIO_OUTPUT_EN;
++	touch_wr(st.tlmm, off, cfg);
++}
++
++static void
++touch_gpio_prepare(void)
++{
++	touch_gpio_output(SURYA_TOUCH_RESET_GPIO, false);
++	touch_gpio_input(SURYA_TOUCH_IRQ_GPIO);
++	printf("SWEET SURYA TOUCH: GPIO8 output-low, GPIO9 input/pull-up state=%u\n",
++	    (touch_rd(st.tlmm, SURYA_GPIO_IO(SURYA_TOUCH_IRQ_GPIO)) & SURYA_GPIO_INPUT) != 0);
 +}
 +
 +/* Set only SPI0 pads identified by Surya's active QUP00 pinctrl group. */
@@ -442,16 +485,28 @@ index 0000000..9666ed4
 +	return nvt_write_raw(addr, &value, 1);
 +}
 +
++/* Vendor init order: GPIO8 starts low, ENG_RST is sent, then GPIO8 goes high. */
++static int
++nvt_hardware_reset(void)
++{
++	if (nvt_write_addr(NVT_ENG_RST_ADDR, 0x5au) != 0)
++		return EIO;
++	touch_gpio_output(SURYA_TOUCH_RESET_GPIO, true);
++	touch_wait_ms(10);
++	return 0;
++}
++
 +static int
 +nvt_read(uint32_t addr, uint8_t *out, size_t len)
 +{
-+	if (!out || len + 2u > sizeof(spi_tx) || nvt_set_page(addr) != 0)
++	if (!out || len + 1u > sizeof(spi_tx) || nvt_set_page(addr) != 0)
 +		return EIO;
-+	memset(spi_tx, 0, len + 2u);
++	memset(spi_tx, 0, len + 1u);
 +	spi_tx[0] = NVT_SPI_READ(addr);
-+	if (touch_spi_xfer(spi_tx, spi_rx, len + 2u) != 0)
++	if (touch_spi_xfer(spi_tx, spi_rx, len + 1u) != 0)
 +		return EIO;
-+	memcpy(out, spi_rx + 2, len);
++	/* Xiaomi's CTP_SPI_READ returns the first data byte at buffer[1]. */
++	memcpy(out, spi_rx + 1, len);
 +	return 0;
 +}
 +
@@ -781,6 +836,11 @@ index 0000000..9666ed4
 +		printf("SWEET SURYA TOUCH: QUP0 SE0 became busy; no pin changes\n");
 +		goto out;
 +	}
++	int rail = sweet_rpmh_vreg_set("ldoa18", 3000, true);
++	printf("SWEET SURYA TOUCH: shared PM6150 L18A 3.0 V rail -> %d\n", rail);
++	if (rail != 0)
++		goto out;
++	touch_gpio_prepare();
 +	touch_spi_pins();
 +	if (!touch_spi_init())
 +		goto out;
@@ -789,6 +849,10 @@ index 0000000..9666ed4
 +	if (st.stage < 4)
 +		goto out;
 +	uint8_t trim[NVT_TRIM_ID_LEN] = { 0 };
++	if (nvt_hardware_reset() != 0) {
++		printf("SWEET SURYA TOUCH: hardware reset sequence failed\n");
++		goto out;
++	}
 +	if (nvt_probe_trim(trim) != 0) {
 +		printf("SWEET SURYA TOUCH: trim ID read failed\n");
 +		goto out;

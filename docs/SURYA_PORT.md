@@ -50,13 +50,13 @@ The community [Surya Android device configuration](https://github.com/koz-nik/an
 - `BOARD=surya` builds Enxerto with the SM7150 framebuffer geometry and IMEM restart address, and packages the extracted stock base DTB in an Android v2 boot image. ABL applying stock DTBO entry 16 to a custom fastboot boot image remains to be verified.
 - Enxerto's early charger writes and off-mode charging screen are disabled for Surya. The existing screen and charger code targets the Poco F1 PMI8998 register map.
 - `tools/mkadt.py --board surya` emits an iOS ADT with Surya and SM7150 identity, the current SweetPlatformExpert compatibility alias, six little cores and two big cores. Its default memory window is the live-FDT-confirmed upper bank, `0x100000000:0xfcc00000`, leaving fixed low-bank carve-outs outside XNU's allocator. `--highmem` selects that upper bank explicitly; `--memory BASE:SIZE` accepts a 16 KiB-aligned contiguous override. Managing both discontiguous banks would require additional ADT work.
-- XNU patch 0251 recognizes Surya and avoids the older I2C touchscreen probe. Patch 0253 adds an experimental Surya-only QUP0 SE0 FIFO transport, Novatek trim-ID probe, optional host-download into volatile controller SRAM, and polled 10-finger reports. It follows the Xiaomi `nt36xxx_spi` protocol and GENI SPI behavior. The path is off by default (`sweettouch=0`); stage 1 is read-only, stage 2 reads SE/GCC state, stage 3 enables QUP0 clocks and changes GPIO49–52 mux, stage 4 sends the Novatek bootloader software-reset command and reads its trim ID, and stage 5 downloads firmware only when both `--touch-fw FILE` is present in the ADT and `sweettouchfw=1` is supplied. Touch firmware is copied into the ADT from the ignored local file `dtb/surya/novatek_ts_tianma_fw.bin`; do not commit it. Physical reset GPIO8 and IRQ GPIO9 are observed in stage 1 but not driven/handled by this initial source path. No build or device touch test has been done.
+- XNU patches 0251, 0253 and 0258 select an experimental Surya-only Novatek path: QUP0 SE0 GENI FIFO SPI, the 3.0 V L18A rail, GPIO8 reset sequencing, trim-ID validation, optional Xiaomi-format firmware download to volatile SRAM, and polled 10-finger reports. It remains off by default. The exact Tianma firmware extracted from the supplied stock ROM is `dtb/surya/firmware/touch/novatek_ts_tianma_fw.bin`; it is ignored and must not be committed. `sweettouch=1 sweettouchstage=1..5` selects stages; stages 4-5 require the prior probe logs to be reviewed, and stage 5 also requires an ADT `/sweet-touch/firmware` property plus `sweettouchfw=1`. Reset GPIO8 is used; IRQ GPIO9 is configured as input but reports are polled. No build or hardware touch test has been done.
 - XNU patch 0252 adds a Surya-only PM6150L WLED5 brightness backend. It detects the active WLED module and width, preserves unrelated register bits, and remains opt-in. This is a source port only; the kernel series has not been built and the backlight has not been exercised on the phone.
 - XNU patch 0255 adapts the IORTC wall-clock path to the live PM6150 RTC at SID 0 (`0x6000` RTC and `0x6100` alarm). It follows the standard PM8941-compatible register layout used by upstream Linux, reads the RTC and writes an offset in alarm data only when the alarm is disabled; SPMI writes still require AP ownership. This is source-only and unverified.
 - XNU patch 0254 adapts the shared PS_HOLD reset path and the IMEM restart-reason word to the addresses in the captured Surya FDT. The PM6150 reboot-reason write is deliberately not reused from Beryllium; reboot mode handling is source-only and hardware-unverified.
 - XNU patch 0256 adds an off-by-default Surya cpufreq-hw path using the upstream SM7150 domain addresses and CPU OPP lists. `sweetcpufreq=1` reads both LUTs without changing state; `sweetcpufreq=2` selects the highest listed OPP. This relies on upstream SoC data, has not been built or exercised, and does not add runtime frequency scaling.
 - XNU's existing read-only PM6150L GPIO2 volume-up and PM6150 PON key path stays enabled. The existing PM6150 voltage-derived battery estimate is also enabled read-only; it is not calibrated for Surya and Enxerto charger writes/off-mode charging remain disabled.
-- Bergamota's Build pane and file-based build request accept a target board and a stock/Huaxing/Tianma DTB choice. The Surya preset starts with one CPU, leaves the kernel console visible, enables the inherited SM7150 USB path for logs/control and the existing volume-key/read-only battery paths, and disables unported touch, GPU and radio paths.
+- Bergamota's Build pane and file-based build request accept a target board and a stock/Huaxing/Tianma DTB choice. The Surya preset starts with one CPU, leaves the kernel console visible, enables the inherited SM7150 USB path for logs/control and the existing volume-key/read-only battery paths, and leaves experimental touch/GPU and radio paths off by default.
 
 The `sweet` compatibility alias is needed so the existing SM7150 kernel platform code can identify the custom `sweet-io` node. It does not make the Redmi Note 10 Pro's peripheral configuration valid for Surya. The inherited SM7150 USB, volume-key and read-only PM6150 battery paths are still unverified on Surya.
 
@@ -69,12 +69,12 @@ The `sweet` compatibility alias is needed so the existing SM7150 kernel platform
 | Boot, ADT, memory and Enxerto profile | Board-specific source plumbing exists | Build and RAM-boot with stock DTBO entry 16; verify ABL handoff and the XNU memory window |
 | Framebuffer / Tianma panel | Existing ABL framebuffer handoff and 1080×2400 canvas are reused | Verify framebuffer ownership and iOS display geometry on Surya; no panel initialization driver has been brought up |
 | PM6150L WLED5 backlight | Source backend added in XNU patch 0252; opt-in only | Build and verify SID 5 reads/writes and brightness on hardware |
-| Novatek NT36672C touch | Experimental opt-in QUP0 GENI FIFO SPI, trim probe, volatile firmware download and polling source in patch 0253; default remains off | Compile and bring up staged probes; verify clock/pad settings and exact trim ID, then validate firmware start, IRQ/reset handling, coordinate mapping and touch events; firmware remains outside Git |
+| Novatek NT36672C touch | Experimental staged QUP0 GENI FIFO SPI, L18A rail, GPIO8 reset, Xiaomi firmware download and polled 10-finger reports in patch 0253; opt-in rail allowlist in 0258 | Build; review stage logs in order, confirm trim ID and firmware startup, then verify IRQ behavior, coordinate mapping, event delivery and panel/touch timing; firmware stays outside Git |
 | UFS storage | Existing SM7150/Sweet UFS implementation is reused | Confirm controller state, DMA addressability and root-partition mapping on Surya |
 | USB | Existing SM7150 DWC3 path is reused by the Surya preset | Confirm PHY, SMMU and fastboot/ADB behavior on the phone |
 | Keys and battery | Existing PM6150/PON read paths are reused read-only | Confirm actual key GPIO/PON wiring and calibrate the voltage-based battery estimate |
 | Charger / off-mode charging | Disabled for Surya | Map Surya's PM6150L/SMB5 registers and safety behavior before enabling any write |
-| GPU | Patch 0257 adds a Surya-only, read-only Adreno 618 state probe (`sweetgpu=1`); higher stages are refused before MMIO | Build and inspect the ABL state log, then separately port and validate GMU startup, RPMh/PDC, HFI, GX, the Surya ZAP firmware/PAS path, SMMU and command submission |
+| GPU | Patch 0259 adds staged Adreno 618 GMU/SMMU/HFI startup, low-level GX power, and signed `a615_zap` PAS handling on top of 0257's read-only probe; opt-in stages 1–6 | Build; run and review each stage in sequence on Surya; CP command submission and userspace rendering are not implemented |
 | Wi-Fi / Bluetooth | Existing WCN3990 bring-up is Beryllium-gated; Surya radio support is disabled | Identify the Surya radio configuration and port its power, firmware, transport and iOS interfaces |
 | Modem, audio, cameras, sensors and NFC | Not ported | Identify each live-FDT device and implement its bus, power, firmware and userland interfaces |
 | Reboot / reset | Patch 0254 maps Surya PS_HOLD (`0x0c264000`) and IMEM (`0x146aa000`, `restart_reason@0x65c`) from the live FDT; Surya skips Beryllium PM8998 PON writes | Compile and verify normal reset and bootloader/recovery/Bergamota reasons on hardware; map PM6150 PON restart-reason handling before enabling writes |
@@ -82,11 +82,19 @@ The `sweet` compatibility alias is needed so the existing SM7150 kernel platform
 | CPU frequency | Patch 0256 adds an off-by-default SM7150 cpufreq-hw probe and opt-in max OPP selection, with exact upstream A55/A76 OPP allowlists | Build; inspect both LUTs with `sweetcpufreq=1`, then separately validate `sweetcpufreq=2` and thermal behavior; runtime scaling is not implemented |
 | Renegade and Bergamota | Board selection and build plumbing exist | Validate Surya GPT/partition and USB identities, then exercise each operation on the device |
 
-### GPU probe scope
+### Adreno 618 staged bring-up
 
-The live tree and the pinned SM7150 DTS identify the Surya GPU as `qcom,adreno-618.0`, with GPU core `0x05000000`, GMU `0x0506a000`, GPUCC `0x05090000`, and Adreno SMMU `0x05040000`. Patch 0257 adds only a read-only `sweetgpu=1` report. It checks GCC/GPUCC clock and power status before accessing GMU or GPU-core registers; it does not map or read SMMU state and does not write GPU, GMU, clock, power, or memory registers. Any `sweetgpu` value above 1 returns without MMIO.
+The live tree and pinned SM7150 DTS identify `qcom,adreno-618.0`, GPU core `0x05000000`, GMU `0x0506a000`, GPUCC `0x05090000`, Adreno SMMU `0x05040000`, and the GMU PDC windows at `0x0b290000` / `0x0b490000`. Patch 0257 supplies stage 1's read-only gate report. Patch 0259 adds opt-in stages 2–6: CX/GMU clocks and a TCM check; cold boot from stock `a618_gmu.bin`; GMU SMMU/HFI setup; GX power capped to the common 180 MHz MIN_SVS level with the A618 HFI bandwidth table; and signed `a615_zap` PAS authentication using the live-FDT carveout at `0x97715000`. It uses the SM7150 cmd-db at `0x85f20000`. `tools/adt-gpufw.py --board surya` packages the GMU, shared SQE and signed ZAP firmware into `/sweet-gpu`; the current stages do not start the SQE or command processor.
 
-The Beryllium Adreno 630 stages remain board-gated. Surya's GMU/PDC offsets, DDRSS GPU AXI clock, HFI chip ID and votes, and signed `a615_zap.mbn` format differ. No Surya GMU boot, firmware load, PAS call, rendering, or command submission has been ported or verified. Keep the Surya GPU option disabled until the probe is built and its hardware log is reviewed.
+To place the local stock GPU firmware in an ADT, start with the Surya ADT and run:
+
+```sh
+python3 tools/adt-gpufw.py enxerto/out/surya-touch.adt enxerto/out/surya-gpu.adt --board surya --fw dtb/surya/firmware/gpu --zap dtb/surya/firmware/gpu
+```
+
+This embeds Qualcomm firmware bytes in the generated ADT; keep the ADT and extracted firmware out of Git.
+
+The Beryllium Adreno 630 driver remains board-gated. Surya's staged path is source-only: it has not been built or hardware-verified. It stops before CP command submission, so it does not provide rendering, Metal, CoreAnimation or userspace GPU acceleration. Keep `sweetgpu` unset except during controlled stage-by-stage bring-up; a Surya device is needed to confirm clock/power sequences, firmware startup, PAS authentication and cleanup.
 
 ## Collecting device-specific input
 
@@ -121,10 +129,10 @@ BOARD=surya DTB=../dtb/surya/dtb ./build.sh
 To add the local Tianma touch firmware to a Surya ADT, pass its ignored file explicitly:
 
 ```sh
-python3 tools/mkadt.py enxerto/out/surya-touch.adt --board surya --touch-fw dtb/surya/novatek_ts_tianma_fw.bin
+python3 tools/mkadt.py enxerto/out/surya-touch.adt --board surya --touch-fw dtb/surya/firmware/touch/novatek_ts_tianma_fw.bin
 ```
 
-This only embeds the firmware in the ADT; it does not enable touch. The experimental path requires `sweettouch=1 sweettouchstage=1` for a read-only pin dump. Stages 2 and 3 inspect/configure QUP0; stage 4 performs the touch-controller software reset and trim probe; stage 5 additionally requires `sweettouchfw=1` and downloads the firmware to volatile SRAM. Do not enable later stages until the previous stage's hardware logs have been reviewed.
+The firmware file is extracted from the supplied Xiaomi ROM and stays ignored under `dtb/surya/firmware/touch/`. This command embeds it in the ADT; it does not enable touch. Bring the path up in order with `sweettouch=1 sweettouchstage=N`: stage 1 reads TLMM, stage 2 reads SE/GCC, stage 3 enables QUP0 and configures the pads and L18A rail, stage 4 applies the GPIO8/software-reset sequence and reads the trim ID, and stage 5 additionally requires `sweettouchfw=1` to download firmware to volatile SRAM and poll reports. GPIO9 is configured but no IRQ handler is installed. Review each previous-stage log before advancing.
 
 The generated reference DTBs can also be selected explicitly with `SURYA_DTB_VARIANT=huaxing` or `tianma`; those Linux trees are for source comparison and are not stock Xiaomi boot DTBs. The default Surya ADT now uses the confirmed upper RAM bank; `--memory BASE:SIZE` remains available for a different verified contiguous region.
 
@@ -133,9 +141,9 @@ The command above expects the extracted stock base DTB at `dtb/surya/dtb`; the m
 ## Work still needed
 
 1. Build Enxerto and its Surya ADT; RAM-boot with stock DTBO entry 16 and confirm ABL passes the merged IDP/Tianma/touch tree. No iOS boot has been attempted yet.
-2. Verify the WLED5 backend and framebuffer handoff on the live panel. Bring up the Novatek path one stage at a time; the current source uses polling and software reset only, so IRQ/reset integration and touch-event verification remain.
+2. Verify the WLED5 backend and framebuffer handoff on the live panel. Bring up the Novatek path stage by stage; the source currently polls SPI reports instead of using IRQ GPIO9, so verify firmware startup, reset timing, coordinate mapping and touch events on hardware.
 3. Verify UFS, USB, PM6150/PON keys and the read-only battery estimate. Keep charger writes off until their registers and safety behavior are mapped for Surya.
-4. Port the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors and NFC. Reboot, RTC and a limited CPU-frequency max-state path now have source adaptations but remain unverified. This remains far from a complete device driver port.
+4. Build and validate the staged Adreno 618 path before continuing with WLAN/Bluetooth, modem, audio, cameras, sensors and NFC. Reboot, RTC and a limited CPU-frequency max-state path have source adaptations but remain unverified. This remains far from a complete device driver port.
 5. Confirm Surya's actual GPT and validate Renegade/root and Bergamota device operations against its partition and USB identities. Keep device changes temporary until the RAM-boot and driver paths are verified.
 
 Until those steps are complete, this is a source-level bring-up scaffold rather than a usable Surya port.

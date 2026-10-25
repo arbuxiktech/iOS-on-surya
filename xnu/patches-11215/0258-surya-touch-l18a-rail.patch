@@ -1,0 +1,41 @@
+diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -1,20 +1,28 @@
+ int
+ sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable)
+ {
+ 	unsigned i;
+-	if (!sweet_board_beryllium() || !res) {
++	bool be = sweet_board_beryllium();
++	bool surya = sweet_board_surya();
++	if (!res || (!be && !surya)) {
+ 		return EINVAL;
+ 	}
+-	for (i = 0; i < sizeof(rh_wcn_rails) / sizeof(rh_wcn_rails[0]); ++i) {
+-		if (!strcmp(res, rh_wcn_rails[i].res) &&
+-		    mv >= rh_wcn_rails[i].lo && mv <= rh_wcn_rails[i].hi) {
+-			break;
++	if (be) {
++		for (i = 0; i < sizeof(rh_wcn_rails) / sizeof(rh_wcn_rails[0]); ++i) {
++			if (!strcmp(res, rh_wcn_rails[i].res) &&
++			    mv >= rh_wcn_rails[i].lo && mv <= rh_wcn_rails[i].hi) {
++				break;
++			}
+ 		}
+-	}
+-	if (i == sizeof(rh_wcn_rails) / sizeof(rh_wcn_rails[0])) {
+-		printf("SWEET RPMH: %s %u mV is not an allowed WCN3990 rail\n", res, mv);
+-		return EINVAL;
++		if (i == sizeof(rh_wcn_rails) / sizeof(rh_wcn_rails[0])) {
++			printf("SWEET RPMH: %s %u mV is not an allowed WCN3990 rail\n", res, mv);
++			return EINVAL;
++		}
++	} else if (strcmp(res, "ldoa18") != 0 || mv != 3000) {
++		/* Surya L18A is the 3.0 V rail shared by the Tianma panel and touch VIO. */
++		printf("SWEET RPMH: %s %u mV is not an allowed Surya touch rail\n", res, mv);
++		return EINVAL;
+ 	}
+ 	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
+ 		return EBUSY;
+ 	}
