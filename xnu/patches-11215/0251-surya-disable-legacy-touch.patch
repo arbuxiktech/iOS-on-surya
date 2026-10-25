@@ -1,7 +1,7 @@
 diff --git a/bsd/dev/sweet_board.h b/bsd/dev/sweet_board.h
 --- a/bsd/dev/sweet_board.h
 +++ b/bsd/dev/sweet_board.h
-@@ -1,6 +1,7 @@
+@@ -1,5 +1,6 @@
  /*
 - * SWEET kernels run on two Xiaomi phones. The ADT root compatible
 - * (tools/mkadt.py --board) names the board; everything else is common.
@@ -10,7 +10,7 @@ diff --git a/bsd/dev/sweet_board.h b/bsd/dev/sweet_board.h
   *   xiaomi,sweet      Redmi Note 10 Pro, SM7150 (default)
 + *   xiaomi,surya      Poco X3 NFC, SM7150
   *   xiaomi,beryllium  Poco F1, SDM845
-@@ -41,11 +42,22 @@ sweet_board_beryllium(void)
+@@ -41,11 +42,21 @@ sweet_board_beryllium(void)
  static inline bool
  sweet_board_beryllium(void)
  {
