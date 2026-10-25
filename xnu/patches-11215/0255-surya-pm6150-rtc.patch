@@ -47,7 +47,7 @@ diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPl
 -	return sweet_board_beryllium() ? (long)sweet_rtc_get() : 0;
 +	return (sweet_board_beryllium() || sweet_board_surya()) ? (long)sweet_rtc_get() : 0;
  }
-@@ -82,2 +82,2 @@ SweetPlatformExpert::setGMTTimeOfDay(long secs)
+@@ -85,2 +85,2 @@ SweetPlatformExpert::setGMTTimeOfDay(long secs)
  {
 -	if (sweet_board_beryllium() && secs > 0) {
 +	if ((sweet_board_beryllium() || sweet_board_surya()) && secs > 0) {

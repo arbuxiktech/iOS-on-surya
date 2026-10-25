@@ -6,7 +6,7 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -74,4 +74,5 @@ extern void sweet_usb_probe(void);
+@@ -75,3 +75,4 @@
  extern void sweet_cpufreq_max(void);
  extern void sweet_charger_start(void);
  extern void sweet_a630_probe(void);
