@@ -1,0 +1,312 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 25a4b8d..eb46148 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -210,7 +210,7 @@ sweet_init_exec_trace(const char *stage, int result)
+ 		PE_parse_boot_argn("sweetinittrace", &on, sizeof(on));
+ 		enabled = on != 0;
+ 	}
+-	if (enabled && sequence < 128) {
++	if (enabled && sequence < 256) {
+ 		printf("INIT %u: %s rc=%d\n", ++sequence, stage, result);
+ 	}
+ }
+diff --git a/bsd/sweet_hfs/core/hfs_cnode.c b/bsd/sweet_hfs/core/hfs_cnode.c
+index 774e0b1..346e10e 100644
+--- a/bsd/sweet_hfs/core/hfs_cnode.c
++++ b/bsd/sweet_hfs/core/hfs_cnode.c
+@@ -47,6 +47,13 @@
+ #include "hfs.h"
+ #include "hfs_catalog.h"
+ #include "hfs_cnode.h"
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern void sweet_init_exec_trace(const char *stage, int result);
++#define SWEET_INIT_TRACE(stage, result) sweet_init_exec_trace(stage, result)
++#else
++#define SWEET_INIT_TRACE(stage, result) ((void)0)
++#endif
+ #include "hfs_quota.h"
+ #include "hfs_format.h"
+ #include "hfs_kdebug.h"
+@@ -964,8 +971,10 @@ hfs_getnewvnode(
+ 	/*
+ 	 * Get a cnode (new or existing)
+ 	 */
++	SWEET_INIT_TRACE("HFS cnode hash begin", 0);
+ 	cp = hfs_chash_getcnode(hfsmp, attrp->ca_fileid, vpp, wantrsrc, 
+ 							(flags & GNV_SKIPLOCK), out_flags, &hflags);
++	SWEET_INIT_TRACE("HFS cnode hash done", cp == NULL ? ENOENT : 0);
+ 
+ 	/*
+ 	 * If the id is no longer valid for lookups we'll get back a NULL cp.
+@@ -1123,7 +1132,10 @@ hfs_getnewvnode(
+ 		/* Make sure its still valid (ie exists on disk). */
+ 		if (!(flags & GNV_CREATE)) {
+ 			int error = 0;
+-			if (!hfs_valid_cnode (hfsmp, dvp, (wantrsrc ? NULL : cnp), cp->c_fileid, attrp, &error)) {
++			SWEET_INIT_TRACE("HFS validate cnode begin", 0);
++			int lookup_cnode_valid = hfs_valid_cnode(hfsmp, dvp, (wantrsrc ? NULL : cnp), cp->c_fileid, attrp, &error);
++			SWEET_INIT_TRACE("HFS validate cnode done", error);
++			if (!lookup_cnode_valid) {
+ 				hfs_chash_abort(hfsmp, cp);
+ 				if ((flags & GNV_SKIPLOCK) == 0) {
+ 					hfs_unlock(cp);
+@@ -1356,12 +1368,16 @@ hfs_getnewvnode(
+ 		 */
+ 		provided_vp = NULL;
+ 
++		SWEET_INIT_TRACE("HFS vnode initialize begin", 0);
+ 		retval = vnode_initialize (VNCREATE_FLAVOR, VCREATESIZE, &vfsp, &vp);
++		SWEET_INIT_TRACE("HFS vnode initialize done", retval);
+ 		/* See error handling below for resolving provided_vp */
+ 	}
+ 	else {
+ 		/* Do a standard vnode_create */
++		SWEET_INIT_TRACE("HFS vnode create begin", 0);
+ 		retval = vnode_create (VNCREATE_FLAVOR, VCREATESIZE, &vfsp, &vp);
++		SWEET_INIT_TRACE("HFS vnode create done", retval);
+ 	}
+ 
+ 	/* 
+@@ -1465,6 +1481,7 @@ hfs_getnewvnode(
+ 	retval = 0;
+ 
+ gnv_exit:
++	SWEET_INIT_TRACE("HFS getnewvnode return", retval);
+ 	if (provided_vp) {
+ 		/* Release our empty vnode if it was not used */
+ 		vnode_put (provided_vp);
+diff --git a/bsd/sweet_hfs/core/hfs_lookup.c b/bsd/sweet_hfs/core/hfs_lookup.c
+index 80763ac..40445ed 100644
+--- a/bsd/sweet_hfs/core/hfs_lookup.c
++++ b/bsd/sweet_hfs/core/hfs_lookup.c
+@@ -86,6 +86,37 @@
+ #include "hfs_catalog.h"
+ #include "hfs_cnode.h"
+ 
++/* PID 1 pathname checkpoints share the opt-in, bounded 0260 exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <sys/proc.h>
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_init_lookup_trace(const char *stage, const struct componentname *cnp, int result)
++{
++	char label[96];
++	int length;
++	const char *name;
++
++	if (proc_selfpid() != 1) {
++		return;
++	}
++	name = cnp != NULL && cnp->cn_nameptr != NULL ? cnp->cn_nameptr : "";
++	length = cnp != NULL ? (int)cnp->cn_namelen : 0;
++	if (length < 0) {
++		length = 0;
++	} else if (length > 24) {
++		length = 24;
++	}
++	snprintf(label, sizeof(label), "%s [%.*s]", stage, length, name);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_LOOKUP_TRACE(stage, cnp, result) sweet_init_lookup_trace(stage, cnp, result)
++#define SWEET_INIT_TRACE(stage, result) sweet_init_exec_trace(stage, result)
++#else
++#define SWEET_LOOKUP_TRACE(stage, cnp, result) ((void)0)
++#define SWEET_INIT_TRACE(stage, result) ((void)0)
++#endif
++
+ 
+ /*	
+  * FROM FREEBSD 3.1
+@@ -190,13 +221,17 @@ hfs_lookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp, int
+ 		cnp->cn_flags &= ~MAKEENTRY;
+ 		goto found;	/* We always know who we are */
+ 	} else {
+-		if (hfs_lock(VTOC(dvp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT) != 0) {
++		SWEET_LOOKUP_TRACE("HFS parent lock begin", cnp, 0);
++		int lookup_lock_error = hfs_lock(VTOC(dvp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT);
++		SWEET_LOOKUP_TRACE("HFS parent lock done", cnp, lookup_lock_error);
++		if (lookup_lock_error != 0) {
+ 			retval = ENOENT;  /* The parent no longer exists ? */
+ 			goto exit;
+ 		}
+ 		dcp = VTOC(dvp);
+ 
+ 		if (dcp->c_flag & C_DIR_MODIFICATION) {
++			SWEET_LOOKUP_TRACE("HFS parent modification retry", cnp, 0);
+ 			// This needs to be changed to sleep on c_flag using assert_wait.
+ 		    // msleep((caddr_t)&dcp->c_flag, &dcp->c_rwlock, PINOD, "hfs_vnop_lookup", 0);
+ 		    hfs_unlock(dcp);
+@@ -221,9 +256,13 @@ hfs_lookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp, int
+ 		cndesc.cd_parentcnid = dcp->c_fileid;
+ 		cndesc.cd_hint = dcp->c_childhint;
+ 
++		SWEET_LOOKUP_TRACE("HFS catalog lock begin", cnp, 0);
+ 		lockflags = hfs_systemfile_lock(hfsmp, SFL_CATALOG, HFS_SHARED_LOCK);
++		SWEET_LOOKUP_TRACE("HFS catalog lock done", cnp, 0);
+ 
++		SWEET_LOOKUP_TRACE("HFS catalog lookup begin", cnp, 0);
+ 		retval = cat_lookup(hfsmp, &cndesc, 0, force_casesensitive_lookup, &desc, &attr, &fork, NULL);
++		SWEET_LOOKUP_TRACE("HFS catalog lookup done", cnp, retval);
+ 		
+ 		hfs_systemfile_unlock(hfsmp, lockflags);
+ 
+@@ -339,7 +378,9 @@ found:
+ 		if (cnp->cn_namelen != desc.cd_namelen)
+ 			cnp->cn_flags &= ~MAKEENTRY;
+ 
++		SWEET_LOOKUP_TRACE("HFS get vnode begin", cnp, 0);
+ 		retval = hfs_getnewvnode(hfsmp, dvp, cnp, &desc, 0, &attr, &fork, &tvp, &newvnode_flags);
++		SWEET_LOOKUP_TRACE("HFS get vnode done", cnp, retval);
+ 
+ 		if (retval) {
+ 			/*
+@@ -478,7 +519,9 @@ hfs_vnop_lookup(struct vnop_lookup_args *ap)
+ 	 *
+ 	 * If the lookup fails, a status of zero is returned.
+ 	 */
++	SWEET_LOOKUP_TRACE("HFS cache begin", cnp, 0);
+ 	error = cache_lookup(dvp, vpp, cnp);
++	SWEET_LOOKUP_TRACE("HFS cache done", cnp, error);
+ 	if (error != -1) {
+ 		if ((error == ENOENT) && (cnp->cn_nameiop != CREATE))		
+ 			goto exit;	/* found a negative cache entry */
+@@ -635,7 +678,9 @@ lookup:
+ 	 */
+ 	cnode_locked = 0;
+ 
++	SWEET_LOOKUP_TRACE("HFS disk lookup begin", cnp, 0);
+ 	error = hfs_lookup(dvp, vpp, cnp, &cnode_locked, force_casesensitive_lookup);
++	SWEET_LOOKUP_TRACE("HFS disk lookup done", cnp, error);
+ 	
+ 	if (*vpp && (VTOC(*vpp)->c_attr.ca_recflags & kHFSDoNotFastDevPinMask)) {
+ 		fastdev_candidate = 0;
+@@ -666,9 +711,13 @@ exit:
+ 	 * the VFS cache), instead of waiting until the entire path lookup has
+ 	 * completed and throttling at the systemcall return
+ 	 */
+-	if (__builtin_expect(throttle_lowpri_window(), 0))
++	if (__builtin_expect(throttle_lowpri_window(), 0)) {
++		SWEET_LOOKUP_TRACE("HFS throttle begin", cnp, 0);
+ 		throttle_lowpri_io(1);
++		SWEET_LOOKUP_TRACE("HFS throttle done", cnp, 0);
++	}
+ 
++	SWEET_LOOKUP_TRACE("HFS VNOP return", cnp, error);
+ 	return (error);
+ }
+ 
+diff --git a/bsd/vfs/vfs_lookup.c b/bsd/vfs/vfs_lookup.c
+index 6e2c4ca..5a0904d 100644
+--- a/bsd/vfs/vfs_lookup.c
++++ b/bsd/vfs/vfs_lookup.c
+@@ -97,6 +97,37 @@
+ 
+ #include <sys/paths.h>
+ 
++/* PID 1 pathname checkpoints share the opt-in, bounded 0260 exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <sys/proc.h>
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_init_lookup_trace(const char *stage, const struct componentname *cnp, int result)
++{
++	char label[96];
++	int length;
++	const char *name;
++
++	if (proc_selfpid() != 1) {
++		return;
++	}
++	name = cnp != NULL && cnp->cn_nameptr != NULL ? cnp->cn_nameptr : "";
++	length = cnp != NULL ? (int)cnp->cn_namelen : 0;
++	if (length < 0) {
++		length = 0;
++	} else if (length > 24) {
++		length = 24;
++	}
++	snprintf(label, sizeof(label), "%s [%.*s]", stage, length, name);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_LOOKUP_TRACE(stage, cnp, result) sweet_init_lookup_trace(stage, cnp, result)
++#define SWEET_INIT_TRACE(stage, result) sweet_init_exec_trace(stage, result)
++#else
++#define SWEET_LOOKUP_TRACE(stage, cnp, result) ((void)0)
++#define SWEET_INIT_TRACE(stage, result) ((void)0)
++#endif
++
+ #if NAMEDRSRCFORK
+ #include <sys/xattr.h>
+ #endif
+@@ -195,6 +226,8 @@ namei(struct nameidata *ndp)
+ 	int resolve_error = 0;
+ 	bool dp_has_iocount = false;
+ 
++	SWEET_INIT_TRACE("VFS namei entered", 0);
++
+ #if DIAGNOSTIC
+ 	if (!vfs_context_ucred(ctx) || !p) {
+ 		panic("namei: bad cred/proc");
+@@ -501,7 +534,10 @@ retry_copy:
+ 		ndp->ni_startdir = dp;
+ 		dp = NULLVP;
+ 
+-		if ((error = lookup(ndp))) {
++		SWEET_LOOKUP_TRACE("VFS lookup begin", cnp, 0);
++		error = lookup(ndp);
++		SWEET_LOOKUP_TRACE("VFS lookup done", cnp, error);
++		if (error) {
+ 			goto error_out;
+ 		}
+ 
+@@ -706,13 +742,17 @@ lookup_authorize_search(vnode_t dp, struct componentname *cnp, int dp_authorized
+ 	int error;
+ 
+ 	if (!dp_authorized_in_cache) {
++		SWEET_LOOKUP_TRACE("VFS vnode auth begin", cnp, 0);
+ 		error = vnode_authorize(dp, NULL, KAUTH_VNODE_SEARCH, ctx);
++		SWEET_LOOKUP_TRACE("VFS vnode auth done", cnp, error);
+ 		if (error) {
+ 			return error;
+ 		}
+ 	}
+ #if CONFIG_MACF
++	SWEET_LOOKUP_TRACE("VFS MAC lookup begin", cnp, 0);
+ 	error = mac_vnode_check_lookup(ctx, dp, cnp);
++	SWEET_LOOKUP_TRACE("VFS MAC lookup done", cnp, error);
+ 	if (error) {
+ 		return error;
+ 	}
+@@ -1225,7 +1265,10 @@ dirloop:
+ 	atroot = 0;
+ 	ndp->ni_vp = NULLVP;
+ 
+-	if ((error = cache_lookup_path(ndp, cnp, dp, ctx, &dp_authorized, last_dp))) {
++	SWEET_LOOKUP_TRACE("VFS cache path begin", cnp, 0);
++	error = cache_lookup_path(ndp, cnp, dp, ctx, &dp_authorized, last_dp);
++	SWEET_LOOKUP_TRACE("VFS cache path done", cnp, error);
++	if (error) {
+ 		dp = NULLVP;
+ 		goto bad;
+ 	}
+@@ -1359,7 +1402,9 @@ unionlookup:
+ 		goto lookup_error;
+ 	}
+ 	if ((cnp->cn_flags & DONOTAUTH) != DONOTAUTH) {
++		SWEET_LOOKUP_TRACE("VFS search auth begin", cnp, 0);
+ 		error = lookup_authorize_search(dp, cnp, dp_authorized, ctx);
++		SWEET_LOOKUP_TRACE("VFS search auth done", cnp, error);
+ 		if (error) {
+ 			goto lookup_error;
+ 		}
+@@ -1404,7 +1449,9 @@ unionlookup:
+ 	 * not fix whether or not you should or should not get /tmp/a vs. /foo/b.
+ 	 */
+ 
++	SWEET_LOOKUP_TRACE("VFS VNOP begin", cnp, 0);
+ 	error = VNOP_LOOKUP(dp, &ndp->ni_vp, cnp, ctx);
++	SWEET_LOOKUP_TRACE("VFS VNOP done", cnp, error);
+ 
+ 	if (error) {
+ lookup_error:
