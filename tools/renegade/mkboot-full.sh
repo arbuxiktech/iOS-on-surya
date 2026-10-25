@@ -16,7 +16,7 @@ beryllium)
 surya)
 	ADT_DEFAULT=enxerto/out/surya-hi-3x.adt
 	OUT_DEFAULT=research/ios18/enxerto-boot-ios18full-surya.img
-	CMDLINE_DEFAULT="debug=0xc serial=3 cpus=1 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetusb=2 sweetkeys=1 sweettouch=0 sweetbattery=1 sweetgpu=0 sweetwlan=0 sweetbt=0 bglrender=soft launchd_disable_all_timeouts=1"
+	CMDLINE_DEFAULT="debug=0xc serial=3 cpus=1 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetusb=2 sweetkeys=1 sweettouch=0 sweetbattery=1 sweetgpu=0 sweetwlan=0 sweetbt=0 sweetarm64e=1 bglrender=soft launchd_disable_all_timeouts=1"
 	;;
 *) echo "error: BOARD must be beryllium or surya" >&2; exit 1 ;;
 esac
