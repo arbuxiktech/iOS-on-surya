@@ -1,5 +1,10 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya PS_HOLD / IMEM reset source adaptation (2026-10-25) <<<
+* Added XNU patch `0254-surya-pshold-reboot.patch`, adapting the existing reset path to live-FDT addresses: PS_HOLD `0x0c264000`; IMEM base `0x146aa000` with `restart_reason@0x65c`. The Beryllium IMEM base remains `0x146bf000`.
+* Surya does not enter the Beryllium PM8998 SPMI atomic or PON reboot-reason path. PM6150 PON restart-reason writes remain disabled until the PMIC mapping and semantics are verified. Normal reset and bootloader/recovery/Bergamota mode behavior are source-level only and unverified on the phone.
+* `git apply --stat` parses patch 0254. No XNU build, test, device reboot or flash was performed. This is one reset-path adaptation, not a complete reboot, RTC or CPU-frequency port. Other missing/unverified drivers remain listed in `docs/SURYA_PORT.md`; the request to port every Surya driver remains open.
+
 ### >>> Surya experimental Novatek SPI touch source port (2026-10-25) <<<
 * Added XNU patch `0253-surya-novatek-spi-touch.patch`: a board-gated QUP0 SE0 GENI FIFO SPI transport, Novatek trim probe, optional Xiaomi-format firmware download to volatile SRAM, and polled 10-finger event parsing. It replaces patch 0251's Surya skip with a Surya-only dispatch; Sweet/Beryllium keep the previous driver path.
 * Hardware mapping is based on the user-provided live FDT (SE0 `0x880000`, CS0, 8 MHz, reset GPIO8, IRQ GPIO9), the pinned Lineage Surya kernel's `nt36xxx_spi` and `spi-geni-qcom.c` sources, plus SM7150 pinctrl/GCC sources. The local Tianma firmware was parsed for header/partition bounds and remains ignored under `dtb/surya/`; the XNU patch contains no firmware bytes.

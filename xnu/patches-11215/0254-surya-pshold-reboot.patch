@@ -1,0 +1,78 @@
+diff --git a/bsd/dev/sweet_reboot.c b/bsd/dev/sweet_reboot.c
+--- a/bsd/dev/sweet_reboot.c
++++ b/bsd/dev/sweet_reboot.c
+@@ -52,6 +52,7 @@
+ 
+ #define SR_PSHOLD_PA     0x0c264000u
+ #define SR_IMEM_PA       0x146bf000u
++#define SR_IMEM_PA_SURYA 0x146aa000u       /* live FDT: qcom,msm-imem@146aa000 */
+ #define SR_IMEM_RESTART  0x65cu            /* restart_reason@65c */
+ #define SR_IMEM_BOOTLOADER 0x77665500u
+ #define SR_IMEM_RECOVERY   0x77665502u
+@@ -70,6 +71,7 @@
+ static int sr_bootarg = SR_NORMAL;
+ static int sr_override = -1;               /* sysctl; -1 = none */
+ static volatile uint32_t *sr_pshold;
++static vm_offset_t sr_imem_phys;
+ static volatile uint32_t *sr_imem;
+ static bool sr_ready, sr_pon_ready, sr_in_panic;
+ 
+@@ -143,7 +145,7 @@
+ {
+ 	char arg[16] = "";
+ 
+-	if (sr_ready || !sweet_board_beryllium()) {
++	if (sr_ready || (!sweet_board_beryllium() && !sweet_board_surya())) {
+ 		return;
+ 	}
+ 	if (PE_parse_boot_argn("sweetreboot", arg, sizeof(arg))) {
+@@ -155,14 +157,18 @@
+ 		}
+ 	}
+ 	sr_pshold = (volatile uint32_t *)ml_io_map(SR_PSHOLD_PA, 0x1000);
+-	sr_imem = (volatile uint32_t *)ml_io_map(SR_IMEM_PA, 0x1000);
+-	if (sweet_spmi_init() == 0 && sweet_spmi_prepare_write(SR_PON_SID, SR_PON_SPARE) == 0) {
++	sr_imem_phys = sweet_board_surya() ? SR_IMEM_PA_SURYA : SR_IMEM_PA;
++	sr_imem = (volatile uint32_t *)ml_io_map(sr_imem_phys, 0x1000);
++	/* Surya PM6150 PON reboot-reason writes are not mapped yet. */
++	if (sweet_board_beryllium() && sweet_spmi_init() == 0 &&
++	    sweet_spmi_prepare_write(SR_PON_SID, SR_PON_SPARE) == 0) {
+ 		sr_pon_ready = true;
+ 	}
+ 	sr_ready = sr_pshold != NULL;
+ 	printf("SWEET REBOOT: boot-arg mode %s, PS_HOLD %s, IMEM %s, PON spare write %s\n",
+ 	    sr_name(sr_bootarg), sr_pshold ? "mapped" : "NOT mapped",
+-	    sr_imem ? "mapped" : "NOT mapped", sr_pon_ready ? "ready" : "unavailable");
++	    sr_imem ? "mapped" : "NOT mapped", sr_pon_ready ? "ready" :
++	    sweet_board_surya() ? "not used on Surya" : "unavailable");
+ }
+ 
+ /*
+@@ -223,17 +229,22 @@
+ 	} else {
+ 		mode = sr_override >= 0 ? sr_override : sr_bootarg;
+ 	}
+-	sweet_spmi_atomic();
++	if (sweet_board_beryllium()) {
++		sweet_spmi_atomic();
++	}
+ 	printf("SWEET REBOOT: resetting, mode %s%s\n", sr_name(mode), panic_restart || sr_in_panic ? " (panic)" : "");
+-	/* bergamota: PON reason 0 (normal) so ABL boots the boot partition, where our shim lives. */
+-	sr_pon_set_reason(mode == SR_BOOTLOADER ? SR_MAGIC_BOOTLOADER :
+-	    mode == SR_RECOVERY ? SR_MAGIC_RECOVERY : SR_MAGIC_NORMAL);
++	if (sweet_board_beryllium()) {
++		/* bergamota: PON reason 0 (normal) so ABL boots the boot partition, where our shim lives. */
++		sr_pon_set_reason(mode == SR_BOOTLOADER ? SR_MAGIC_BOOTLOADER :
++		    mode == SR_RECOVERY ? SR_MAGIC_RECOVERY : SR_MAGIC_NORMAL);
++	}
+ 	if (sr_imem && mode != SR_NORMAL) {
+ 		uint32_t magic = mode == SR_BOOTLOADER ? SR_IMEM_BOOTLOADER :
+ 		    mode == SR_RECOVERY ? SR_IMEM_RECOVERY : SR_IMEM_BERGAMOTA;
+ 		sr_imem[SR_IMEM_RESTART / 4] = magic;
+ 		__asm__ volatile ("dsb sy" ::: "memory");
+-		printf("SWEET REBOOT: IMEM restart_reason 0x146bf65c = 0x%08x\n", magic);
++		printf("SWEET REBOOT: IMEM restart_reason %#llx = 0x%08x\n",
++		    (unsigned long long)(sr_imem_phys + SR_IMEM_RESTART), magic);
+ 	}
+ 	__asm__ volatile ("dsb sy" ::: "memory");
+ 	*sr_pshold = 0;
