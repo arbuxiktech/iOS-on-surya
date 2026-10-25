@@ -35,7 +35,7 @@ diff --git a/bsd/dev/sweet_board.h b/bsd/dev/sweet_board.h
 diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
 --- a/bsd/dev/sweet_touch.c
 +++ b/bsd/dev/sweet_touch.c
-@@ -987,3 +987,8 @@ sweet_touch_init(void)
+@@ -1205,6 +1205,11 @@ sweet_touch_init(void)
  	}
  	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
  	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
@@ -44,3 +44,6 @@ diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
 +		printf("SWEET TOUCH: surya nt36xxx SPI driver not ported; skipped\n");
 +		return;
 +	}
+ 	/*
+ 	 * A fast swipe up from the bottom edge (home gesture) was lost: with a
+ 	 * 10 ms sleep plus a ~6 ms bit-banged frame read the first sample came
