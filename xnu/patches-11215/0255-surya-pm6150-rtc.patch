@@ -1,0 +1,53 @@
+diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
+--- a/bsd/dev/sweet_spmi.c
++++ b/bsd/dev/sweet_spmi.c
+@@ -163,7 +163,8 @@
+ 		/* Surya's PM6150L is SID 5; expose only the WLED ctrl/sink blocks. */
+ 		allowed = (sid == 0 && (peripheral == 0x10 || peripheral == 0x11 ||
+ 		    peripheral == 0x12 || peripheral == 0x13 || peripheral == 0x48)) ||
+-		    (sweet_board_surya() && sid == 5 && (peripheral == 0xd8 || peripheral == 0xd9));
++		    (sweet_board_surya() && ((sid == 5 && (peripheral == 0xd8 || peripheral == 0xd9)) ||
++		    (sid == 0 && (peripheral == 0x60 || peripheral == 0x61))));
+ 	}
+ 	if (!sp_ready || !out || addr > 0xffffu || !allowed) {
+ 		return -1;
+@@ -233,6 +234,10 @@
+ 		return false;
+ 	}
+ 	if (sweet_board_surya()) {
++		/* PM6150 RTC offset: caller checks that the alarm is disabled. */
++		if (sid == 0) {
++			return (addr == 0x6140u || addr == 0x6142u) && len == 2;
++		}
+ 		if (sid != 5) {
+ 			return false;
+ 		}
+@@ -431,7 +436,8 @@
+ sr_raw(uint32_t *raw)
+ {
+ 	uint8_t ctrl = 0, b0 = 0;
+-	if (!sweet_board_beryllium() || sweet_spmi_init() != 0 || sweet_spmi_read(0, SR_RTC_CTRL, &ctrl) != 0 ||
++	if ((!sweet_board_beryllium() && !sweet_board_surya()) || sweet_spmi_init() != 0 ||
++	    sweet_spmi_read(0, SR_RTC_CTRL, &ctrl) != 0 ||
+ 	    !(ctrl & SR_EN)) {
+ 		return -1;
+ 	}
+diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+--- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
++++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+@@ -39,5 +39,5 @@ SweetPlatformExpert::start(IOService *provider)
+ 	registerService();
+ 	IOLog("SWEET: platform expert registered\n");
+-	if (sweet_board_beryllium()) {
++	if (sweet_board_beryllium() || sweet_board_surya()) {
+ 		publishResource("IORTC");
+ 	}
+@@ -72,3 +72,3 @@ SweetPlatformExpert::getGMTTimeOfDay(void)
+ {
+-	return sweet_board_beryllium() ? (long)sweet_rtc_get() : 0;
++	return (sweet_board_beryllium() || sweet_board_surya()) ? (long)sweet_rtc_get() : 0;
+ }
+@@ -82,2 +82,2 @@ SweetPlatformExpert::setGMTTimeOfDay(long secs)
+ {
+-	if (sweet_board_beryllium() && secs > 0) {
++	if ((sweet_board_beryllium() || sweet_board_surya()) && secs > 0) {

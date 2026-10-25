@@ -3,7 +3,8 @@ diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
 +++ b/bsd/dev/sweet_spmi.c
 @@ -162,7 +162,9 @@ sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
  		    (sid == 3 && (peripheral == 0xd8 || peripheral == 0xd9)) ||
- 		    (sid == 0 && peripheral == 0x08);
+-		    (sid == 0 && (peripheral == 0x08 || peripheral == 0x60 || peripheral == 0x61));  /* 0x60/0x61: PM8998 RTC, alarm (sweet_rtc_*) */
++		    (sid == 0 && (peripheral == 0x08 || peripheral == 0x60 || peripheral == 0x61));  /* Beryllium PM8998 PON and RTC access (patch 0245). */
  	} else {
 -		allowed = sid == 0 && (peripheral == 0x10 || peripheral == 0x11 ||
 -		    peripheral == 0x12 || peripheral == 0x13 || peripheral == 0x48);
