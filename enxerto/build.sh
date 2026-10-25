@@ -62,9 +62,9 @@ case ${BERGAMOTA:-} in
 0) CMDLINE="$CMDLINE bergamota.fastboot=0" ;;
 esac
 if [ "$BOARD" = surya ]; then
-	# Surya shipped with Android 10; confirm the precise stock patch level from its boot image.
-	BOOT_OS_VERSION=10.0.0
-	BOOT_OS_PATCH_LEVEL=2020-09
+	# Match the stock V14.0.5.0.SJGEUXM boot header's encoded OS metadata.
+	BOOT_OS_VERSION=11.0.0
+	BOOT_OS_PATCH_LEVEL=2023-06
 else
 	BOOT_OS_VERSION=17.0.0
 	BOOT_OS_PATCH_LEVEL=2035-06
