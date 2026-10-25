@@ -35,8 +35,8 @@ def main():
     ap.add_argument('inp')
     ap.add_argument('out')
     ap.add_argument('--board', choices=sorted(BOARDS), default='beryllium', help='GPU firmware naming set (default: beryllium)')
-    ap.add_argument('--fw', required=True, help='directory containing this board's GMU and SQE firmware')
-    ap.add_argument('--zap', help='directory containing this board's signed ZAP MDT and bNN segments')
+    ap.add_argument('--fw', required=True, help="directory containing this board's GMU and SQE firmware")
+    ap.add_argument('--zap', help="directory containing this board's signed ZAP MDT and bNN segments")
     a = ap.parse_args()
     names = BOARDS[a.board]
     root, _ = adt.parse(adt.load(a.inp))

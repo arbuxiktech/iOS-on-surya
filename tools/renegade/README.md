@@ -33,8 +33,8 @@ RENEGADE_BGL_SURYA="$PWD/research/surya-gles" \
 RENEGADE_SWEETNET_SURYA="$PWD/research/surya-sweetnet" \
 RENEGADE_BGL_SURYA="$PWD/research/surya-gles" \
 	tools/renegade/renegade update research/ios18/ios18-root-full-surya.simg --board surya
-BOARD=surya tools/renegade/mkboot-full.sh xnu/out-0139/kernel.development.sweet \
-	enxerto/out/surya-hi-3x.adt
+BOARD=surya tools/renegade/mkboot-full.sh xnu/out/artifact/kernel.development.sweet \
+	enxerto/out/surya-hi-3x.adt research/ios18/enxerto-boot-ios18full-surya.img
 ```
 
 The helper builds `sweettouch` and the other Renegade iOS 18 tools as native arm64 under `research/surya-sweetnet/ios18/`, then builds the native arm64 EAGL/Mesa bundle under `research/surya-gles/`. Renegade installs those tools into the Surya root. The Surya boot profile enables `sweetarm64e=1` for the PAC-stripped iOS 18 system binaries and requests `bglrender=soft`: the kernel does not yet have Adreno 618 command submission, so this userland currently renders through Mesa softpipe. The `sweettouch` program injects synthetic events for UI checks; physical panel touch still depends on the separate experimental XNU SPI path. Root-image creation and device boot were not verified on Surya.
