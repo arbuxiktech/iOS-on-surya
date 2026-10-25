@@ -2,7 +2,7 @@
 """Renegade in-place update (`renegade update`): apply the root tweaks of root_tweaks18.py to a FINISHED root image,
 without the IPSW dmgs (deleted, and the Mac has no room for them).
 
-  update.py IMAGE.simg [--no-appreg] [--no-posterboard] [--no-bluetooth] [--no-jb] [--no-wallpaper] [--no-bglrender] [--force-jb] [--mnt DIR]
+  update.py IMAGE.simg [--board beryllium|surya] [--no-appreg] [--no-posterboard] [--no-bluetooth] [--no-jb] [--no-wallpaper] [--no-bglrender] [--force-jb] [--mnt DIR]
   update.py IMAGE.img                      resume: the raw image a failed run left behind (see below)
 
 Steps (every one checks `df` first and stops below 5 GiB free on the volume of the image):
@@ -178,6 +178,8 @@ def write_map(table, path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('image', help='root image: IMAGE.simg (full run) or IMAGE.img (resume after a failure)')
+    ap.add_argument('--board', choices=('beryllium', 'surya'), default='beryllium',
+                    help='userland/root tweak profile (default: beryllium)')
     for f_, what in (('appreg', 'first-boot LaunchServices registration of the staged apps'),
                      ('posterboard', 'sweetfp.dylib + the LC_LOAD_DYLIB in PosterBoard'),
                      ('bluetooth', 'bluetoothd env, BlueTool stub, hcitest'),
@@ -190,6 +192,7 @@ def main():
     ap.add_argument('--mnt', help='mount point (default: IMAGE.mnt next to the image)')
     ap.add_argument('--check', action='store_true', help='preflight only (read only), consume nothing')
     a = ap.parse_args()
+    os.environ['RENEGADE_BOARD'] = a.board
     if a.disable_cryptexd:
         os.environ['RENEGADE_DISABLE_CRYPTEXD'] = '1'
     rt_features = ('appreg', 'posterboard', 'bluetooth', 'jb', 'wallpaper', 'bglrender')
@@ -197,6 +200,7 @@ def main():
         if getattr(a, 'no_' + f_):
             os.environ['RENEGADE_NO_' + f_.upper()] = '1'
     rt = load('root_tweaks18', 'root_tweaks18.py')
+    rt.set_board(a.board)
     feats = {f_: rt.enabled(f_) for f_ in rt.FEATURES}
 
     path = os.path.abspath(a.image)
@@ -306,7 +310,7 @@ def main():
         # Metal Mercury, as in a full build (root_tweaks18.auto): the dylibs and bgmtl.arm go in before the first-boot job
         # picks the wallpaper, which follows the outcome. RENEGADE_NO_BGMTL=1 / RENEGADE_BGMTL=0 opts out.
         metal = False
-        if os.environ.get('RENEGADE_NO_BGMTL') != '1' and os.environ.get('RENEGADE_BGMTL') != '0':
+        if rt.bgmtl_enabled():
             metal = rt.bgmtl(mnt)
         rt.firstboot(mnt, appreg=feats['appreg'], jb=feats['jb'], wallpaper=feats['wallpaper'], metal=metal)
         if os.environ.get('RENEGADE_DISABLE_CRYPTEXD') == '1':

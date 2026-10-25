@@ -18,7 +18,26 @@ The Bergamota Project's patcher. iOS 18 ships every system binary as **arm64e** 
 
 `root_tweaks18.py` holds the first-boot changes to the root (Setup skip, activation, SSH, staged system apps, ...). `dsctools/` symbolicates and disassembles the rewritten shared cache. The kernel half lives in Heartwood: patch 0131 (`sweetarm64e=1`) loads arm64e binaries, and 0141 emulates FJCVTZS, which has no 1:1 rewrite. Details and history are in `docs/IOS18_PORT.md`.
 
-`renegade boot` accepts `BOARD=beryllium|surya`; the Surya profile expects a Surya ADT and stock DTB. `SURYA_DTB_VARIANT=huaxing|tianma` can package a generated mainline reference DTB for source experiments, but those blobs are not stock Xiaomi boot trees. Root-image creation itself is shared; Surya partition access and the USB/network control path have not been validated on hardware. See `docs/SURYA_PORT.md`.
+`renegade root` and `renegade update` accept `--board beryllium|surya`. The Surya root output is separate (`research/ios18/ios18-root-full-surya.simg`) and uses `research/ios18/surya-full/` for its work files. Its root tweaks omit the Beryllium Bluetooth and Metal paths; `bglrender` is installed only from an explicit Surya payload. The common iOS 18.7.8 base still comes from the iPhone11,8 IPSW. `renegade boot` accepts `BOARD=beryllium|surya` and selects the matching root image for its boot logo; the Surya profile expects a Surya ADT and stock DTB. `SURYA_DTB_VARIANT=huaxing|tianma` can package a generated mainline reference DTB for source experiments, but those blobs are not stock Xiaomi boot trees. Surya partition access and the USB/network control path have not been validated on hardware. See `docs/SURYA_PORT.md`.
+
+### Surya iOS 18 userland and root
+
+On a Mac with Xcode, build the native arm64 iOS 18 userland and the EAGL/Mesa payload. Mesa's source/build scratch needs about 1.6 GB; set `GPU_EAGL_WORK` outside the checkout:
+
+```sh
+GPU_EAGL_WORK="$HOME/surya-eagl-work" tools/renegade/build-surya-userland.sh
+tools/renegade/renegade fetch                         # iPhone11,8 iOS 18.7.8 root/cryptex source
+RENEGADE_SWEETNET_SURYA="$PWD/research/surya-sweetnet" \
+RENEGADE_BGL_SURYA="$PWD/research/surya-gles" \
+	tools/renegade/renegade root --board surya          # -> ios18-root-full-surya.simg
+RENEGADE_SWEETNET_SURYA="$PWD/research/surya-sweetnet" \
+RENEGADE_BGL_SURYA="$PWD/research/surya-gles" \
+	tools/renegade/renegade update research/ios18/ios18-root-full-surya.simg --board surya
+BOARD=surya tools/renegade/mkboot-full.sh xnu/out-0139/kernel.development.sweet \
+	enxerto/out/surya-hi-3x.adt
+```
+
+The helper builds `sweettouch` and the other Renegade iOS 18 tools as native arm64 under `research/surya-sweetnet/ios18/`, then builds the native arm64 EAGL/Mesa bundle under `research/surya-gles/`. Renegade installs those tools into the Surya root. The Surya boot profile requests `bglrender=soft`: the kernel does not yet have Adreno 618 command submission, so this userland currently renders through Mesa softpipe. The `sweettouch` program injects synthetic events for UI checks; physical panel touch still depends on the separate experimental XNU SPI path. Root-image creation and device boot were not verified on Surya.
 
 ## Platforms (macOS and Linux)
 

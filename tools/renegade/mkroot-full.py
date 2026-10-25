@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Renegade root build (`renegade root`): build the FULL iOS 18.7.8 (iPhone11,8, 22H352) root as a flashable HFS+ image for the userdata partition.
 
-  mkroot-full.py [--ipsw-dir DIR] [--out IMG] [--size 20g] [--stages copy,macho,cache,tweaks,seal] [--simg OUT.simg]
+  mkroot-full.py [--board beryllium|surya] [--ipsw-dir DIR] [--out IMG] [--size 20g]
+                 [--stages copy,macho,cache,tweaks,seal] [--simg OUT.simg]
 
 macOS: no sudo. Linux: run as root (loop device + mount), IPSW volumes through apfs-fuse; see README.md "Linux".
 RENEGADE_DRY_RUN=1 prints the platform commands of the chosen stages and runs nothing. Platform specifics live in
@@ -44,7 +45,7 @@ import renegade_platform as rplat  # noqa: E402
 
 MAGICS = {b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf'}
 MIN_FREE = 5 << 30
-W = os.path.join(ROOT, 'research/ios18/full')              # work dir (mount points, map)
+W = os.path.join(ROOT, 'research/ios18/full')              # Beryllium work dir; Surya gets a separate one in main().
 
 
 def log(*a):
@@ -396,6 +397,7 @@ def stage_tweaks(a, root):
     spec = importlib.util.spec_from_file_location('root_tweaks18', os.path.join(HERE, 'root_tweaks18.py'))
     rt = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rt)
+    rt.set_board(a.board)
     rt.SSH_OUT = rt.ssh_out()          # this checkout, the main checkout, then the berga-tools cache
     rt.NETCFG = rt.find_sweetnet('sweetnetcfg') or os.path.join(MAIN_CHECKOUT, 'research/sweetnet/sweetnetcfg')
     rt.REBOOT_TOOL = rt.find_sweetnet('sweetreboot') or os.path.join(MAIN_CHECKOUT, 'research/sweetnet/sweetreboot')
@@ -760,8 +762,10 @@ def dry_plan(a, img, rootmnt, dmgs, stages):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument('--board', choices=('beryllium', 'surya'), default='beryllium',
+                    help='userland/root tweak profile (default: beryllium)')
     ap.add_argument('--ipsw-dir', default=os.path.join(ROOT, 'research/ios18/ipsw/22H352__iPhone11,8'))
-    ap.add_argument('--out', default=os.path.join(ROOT, 'research/ios18/ios18-root-full.img'))
+    ap.add_argument('--out', default=None)
     ap.add_argument('--size', default='20g')
     ap.add_argument('--stages', default='copy,macho,cache,tweaks,seal,verify,simg')
     ap.add_argument('--simg', default=None)
@@ -779,6 +783,15 @@ def main():
         ap.add_argument('--no-' + f_, action='store_true', help='opt out: ' + what + ' (same as RENEGADE_NO_' + f_.upper() + '=1)')
     ap.add_argument('--disable-cryptexd', action='store_true', help='OPT-IN fallback: remove the crash-looping cryptexd job (same as RENEGADE_DISABLE_CRYPTEXD=1)')
     a = ap.parse_args()
+    global W, OWNER_EXTRA, JB_OWNERS
+    os.environ['RENEGADE_BOARD'] = a.board
+    if a.out is None:
+        suffix = '-surya' if a.board == 'surya' else ''
+        a.out = os.path.join(ROOT, 'research/ios18/ios18-root-full%s.img' % suffix)
+    if a.board == 'surya':
+        W = os.path.join(ROOT, 'research/ios18/surya-full')
+    OWNER_EXTRA = os.path.join(W, 'owners-extra.tsv')
+    JB_OWNERS = os.path.join(W, 'owners-jb.tsv')
     if a.disable_cryptexd:
         os.environ['RENEGADE_DISABLE_CRYPTEXD'] = '1'
     for f_ in ('appreg', 'posterboard', 'bluetooth', 'jb', 'wallpaper', 'bglrender'):

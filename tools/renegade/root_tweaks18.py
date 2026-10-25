@@ -670,8 +670,9 @@ def event_timing(root):
 #   bglrender    bglrender(): the Bergamota GL renderer payload (EAGL shim over Mesa freedreno/softpipe) in /usr/local/lib/bergamota-gl and
 #                backboardd's launchd job pointed at its launcher; INERT unless the kernel boot-args contain bglrender=1|soft
 #
-# All ON by default. Opt out with RENEGADE_NO_<FEATURE>=1 (FEATURE = APPREG, POSTERBOARD, BLUETOOTH, JB, WALLPAPER, BGLRENDER) or the
-# --no-<feature> flags of `renegade root` and `renegade update`, which set the same variables.
+# All ON by default for Beryllium. Surya leaves the Beryllium Bluetooth setup and BGMTL/Metal path off; Bluetooth can be explicitly
+# enabled with RENEGADE_SURYA_BLUETOOTH=1. Opt out with RENEGADE_NO_<FEATURE>=1 (FEATURE = APPREG, POSTERBOARD, BLUETOOTH, JB, WALLPAPER,
+# BGLRENDER) or the --no-<feature> flags of `renegade root` and `renegade update`, which set the same variables.
 # ON by default for this build: bgmtl() (the Bergamota Metal device linked into MercuryPosterExtension only) and its arming file, and with them the
 # Mercury wallpaper; opt out with RENEGADE_NO_BGMTL=1 (or RENEGADE_BGMTL=0), ship it inert with RENEGADE_BGMTL_ARM=0. RENEGADE_BGMTL_DIR = the three
 # dylibs (default research/bgmtl); without them the feature is skipped with a note and the wallpaper stays Collections 5010.
@@ -695,28 +696,50 @@ def wallpaper_poster(metal):
     return os.environ.get('RENEGADE_WALLPAPER_POSTER') or (WALLPAPER_MERCURY if metal else WALLPAPER_COLLECTIONS)
 WALLPAPER_POSTER = WALLPAPER_COLLECTIONS   # kept for readers of the old name: the poster used when there is no Metal device
 FEATURES = ('appreg', 'posterboard', 'bluetooth', 'jb', 'wallpaper', 'bglrender')
-SWEETNET_DIRS = [os.environ.get('RENEGADE_SWEETNET'),
-                 os.path.join(REPO, 'research/sweetnet'),
-                 os.path.join(REPO, '..', 'ios-beryllium', 'research/sweetnet'),
-                 berga_tools.search_dirs()[0]]          # last: local builds win over the berga-tools cache (renegade fetch-tools)
+BOARD = os.environ.get('RENEGADE_BOARD', 'beryllium')
+
+
+def set_board(board):
+    """Select the hardware-specific userland paths and root tweaks for this root image."""
+    global BOARD
+    if board not in ('beryllium', 'surya'):
+        raise ValueError('board must be beryllium or surya')
+    BOARD = board
 
 
 def enabled(feature):
     if feature == 'jb' and os.environ.get('RENEGADE_JB') == '0':
         return False
+    if feature == 'bluetooth' and BOARD == 'surya' and os.environ.get('RENEGADE_SURYA_BLUETOOTH') != '1':
+        return False
     return os.environ.get('RENEGADE_NO_' + feature.upper()) != '1'
 
 
+def bgmtl_enabled():
+    """BGMTL is the Beryllium Metal path; Surya has no Metal command submission yet."""
+    return BOARD != 'surya' and os.environ.get('RENEGADE_NO_BGMTL') != '1' and os.environ.get('RENEGADE_BGMTL') != '0'
+
+
+def sweetnet_dirs():
+    dirs = [os.environ.get('RENEGADE_SWEETNET_SURYA')] if BOARD == 'surya' else []
+    dirs += [os.environ.get('RENEGADE_SWEETNET')]
+    if BOARD == 'surya':
+        dirs.append(os.path.join(REPO, 'research/surya-sweetnet'))
+    dirs += [os.path.join(REPO, 'research/sweetnet'),
+             os.path.join(REPO, '..', 'ios-beryllium', 'research/sweetnet'),
+             berga_tools.search_dirs()[0]]           # last: local builds win over the berga-tools cache
+    return dirs
+
+
 def find_sweetnet(rel):
-    """First existing research/sweetnet/REL (tools/sweetnet/build.sh output) of: $RENEGADE_SWEETNET, this
-    checkout, the main checkout."""
-    for d in SWEETNET_DIRS:
+    """First existing board-selected research/sweetnet/REL (tools/sweetnet/build.sh output) in local builds or the cache."""
+    for d in sweetnet_dirs():
         if d and os.path.exists(os.path.join(d, rel)):
             return os.path.abspath(os.path.join(d, rel))
     return None
 
 
-UICACHE = None              # default: find_sweetnet('ios18/sweetuicache') (arm64e, pacstrip --sign)
+UICACHE = None              # default: find_sweetnet('ios18/sweetuicache') (native arm64 for Surya, PAC-stripped arm64e otherwise)
 SWEETFP = None              # default: find_sweetnet('ios18/sweetfp.dylib')
 ADDLC = os.path.join(HERE, '..', 'sweetnet', 'addlc.py')
 SWEETFP_PATH = '/usr/local/lib/sweetfp.dylib'
@@ -1155,11 +1178,17 @@ def cryptexd(root):
         len(gone), 'moved aside' if moved else 'not present (already disabled)'))
 
 
-BGL_DIRS = [os.environ.get('RENEGADE_BGL'),
+def bgl_dirs():
+    if BOARD == 'surya':
+        # Do not silently install the Beryllium GPU artifact into a Surya root. A Surya
+        # build is native arm64 and should explicitly point at its own payload.
+        return [os.environ.get('RENEGADE_BGL_SURYA'), os.environ.get('RENEGADE_BGL'),
+                os.path.join(REPO, 'research/surya-gles')]
+    return [os.environ.get('RENEGADE_BGL'),
             os.path.join(REPO, 'research/bergamota-gl'),
             os.path.join(REPO, '..', 'ios-beryllium', 'research/bergamota-gl'),
             os.path.join(REPO, '..', 'ios-beryllium-gpu-eagl', 'research/bergamota-gl'),
-            berga_tools.search_dirs()[1]]               # last: the berga-tools cache (renegade fetch-tools)
+            berga_tools.search_dirs()[1]]
 BGL_FILES = ('bgl-launch', 'OpenGLES.framework/OpenGLES', 'libOSMesa.8.dylib', 'libdrm.2.dylib')
 BGL_DIR = 'usr/local/lib/bergamota-gl'
 BGL_LAUNCH = '/usr/local/lib/bergamota-gl/bgl-launch'
@@ -1167,9 +1196,8 @@ BACKBOARDD_LABEL, BACKBOARDD_PATH = 'com.apple.backboardd', '/usr/libexec/backbo
 
 
 def find_bgl():
-    """The payload directory built by gpu/eagl/make-payload.sh (ios-beryllium gpu-eagl branch): $RENEGADE_BGL, this checkout,
-    the main checkout or the gpu-eagl worktree; None when it is incomplete."""
-    for d in BGL_DIRS:
+    """The selected board's complete userland EAGL/Mesa payload, or None when it is incomplete."""
+    for d in bgl_dirs():
         if d and all(os.path.isfile(os.path.join(d, f)) for f in BGL_FILES):
             return os.path.abspath(d)
     return None
@@ -1231,8 +1259,12 @@ def tool_gaps(feats):
     if feats.get('posterboard') and not (SWEETFP or find_sweetnet('ios18/sweetfp.dylib')):
         gaps['posterboard'] = 'sweetfp.dylib ' + not_built() + '; PosterBoard is left alone'
     if feats.get('bglrender') and not find_bgl():
-        gaps['bglrender'] = ('payload: no prebuilt bergamota-gl (gpu/eagl/make-payload.sh needs a Mac; or a CI artifact in '
-                             'research/bergamota-gl/ or $RENEGADE_BGL, or `renegade fetch-tools`)')
+        if BOARD == 'surya':
+            gaps['bglrender'] = ('no Surya payload: build native arm64 with gpu/eagl/make-payload.sh into '
+                                 'research/surya-gles/, or set RENEGADE_BGL_SURYA')
+        else:
+            gaps['bglrender'] = ('payload: no prebuilt bergamota-gl (gpu/eagl/make-payload.sh needs a Mac; or a CI artifact in '
+                                 'research/bergamota-gl/ or $RENEGADE_BGL, or `renegade fetch-tools`)')
     for f, r in gaps.items():
         note_skip(f, r)
     return gaps
@@ -1345,10 +1377,10 @@ def auto(root):
         bluetooth(root)
     if enabled('posterboard'):
         posterboard(root)
-    # Metal Mercury ships by default (RENEGADE_NO_BGMTL=1 / RENEGADE_BGMTL=0 opts out). It goes in FIRST: the dylibs and bgmtl.arm are in the image
-    # before the first-boot job can select the Mercury wallpaper, and so before PosterBoard ever launches Mercury. The wallpaper follows the outcome.
+    # Beryllium Metal Mercury ships by default (RENEGADE_NO_BGMTL=1 / RENEGADE_BGMTL=0 opts out); Surya has no Metal submission path yet.
+    # It goes in FIRST so the dylibs and bgmtl.arm precede the first-boot job and PosterBoard launch. The wallpaper follows the outcome.
     metal = False
-    if os.environ.get('RENEGADE_NO_BGMTL') != '1' and os.environ.get('RENEGADE_BGMTL') != '0':
+    if bgmtl_enabled():
         metal = bgmtl(root)
     firstboot(root, appreg=enabled('appreg'), jb=enabled('jb'), wallpaper=enabled('wallpaper'), metal=metal)
     if enabled('bglrender'):

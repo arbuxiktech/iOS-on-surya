@@ -1,5 +1,11 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya iOS 18 userland and Renegade root profile (2026-10-25) <<<
+* Added `--board surya` to `renegade root` and `renegade update`, with a separate default output `research/ios18/ios18-root-full-surya.simg` and isolated `research/ios18/surya-full/` work files. The common 22H352 iPhone11,8 IPSW is still the root source.
+* The Surya root profile resolves native tools from `research/surya-sweetnet/` / `RENEGADE_SWEETNET_SURYA` and the GL payload from `research/surya-gles/` / `RENEGADE_BGL_SURYA`; it will not silently reuse the Beryllium GL payload. Bluetooth and BGMTL remain disabled for Surya by default. `mkboot-full.sh` selects the Surya root image and requests `bglrender=soft` because Adreno 618 command submission is not implemented.
+* Added native `IOS18_ARCH=arm64` support to `tools/sweetnet/build.sh` and `tools/renegade/build-surya-userland.sh` to assemble the arm64 iOS 18 helper set plus EAGL/Mesa payload on macOS/Xcode. `sweettouch` remains a synthetic event helper; physical touch is the XNU SPI driver path.
+* No userland binaries or root image were built: this workspace host is Windows, while the Xcode build requires macOS and the root image builder requires macOS or Linux. No image was booted or flashed. Next: build native userland on a Mac, then build the Surya root image on a supported host and RAM-boot only after kernel/ADT checks.
+
 ### >>> Surya GPU/touch userland preparation (2026-10-25) <<<
 * Generalized the Mesa/libdrm stand-in discovery to select a ready ABI-1 A618 or A630 service (`SweetAdreno618` / `SweetAdreno630`) and reject unrelated/not-ready services. The Surya service is only a planned userspace contract: current XNU patch 0259 has no IOKit GPU user client, CP command submission, or rendering; Mesa uses its softpipe fallback on this kernel.
 * Made Mesa, the EAGL bridge, libdrm and payload scripts configurable for native `arm64` builds and iOS minimum version. `docs/GPU_EAGL.md` has a Surya payload command. Payload generation/build was not run here (this host is Windows and the build requires Xcode/macOS).
