@@ -35,14 +35,14 @@ diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
 diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
 --- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-@@ -39,5 +39,5 @@ SweetPlatformExpert::start(IOService *provider)
+@@ -40,5 +40,5 @@ SweetPlatformExpert::start(IOService *provider)
  	registerService();
  	IOLog("SWEET: platform expert registered\n");
 -	if (sweet_board_beryllium()) {
 +	if (sweet_board_beryllium() || sweet_board_surya()) {
  		publishResource("IORTC");       /* 0245: the PM8998 RTC below; IOKitInitializeTime waits up to 30 s for it */
  	}
-@@ -72,3 +72,3 @@ SweetPlatformExpert::getGMTTimeOfDay(void)
+@@ -79,3 +79,3 @@ SweetPlatformExpert::getGMTTimeOfDay(void)
  {
 -	return sweet_board_beryllium() ? (long)sweet_rtc_get() : 0;
 +	return (sweet_board_beryllium() || sweet_board_surya()) ? (long)sweet_rtc_get() : 0;

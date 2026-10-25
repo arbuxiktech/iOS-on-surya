@@ -1,12 +1,14 @@
 diff --git a/bsd/conf/files b/bsd/conf/files
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -122,0 +123,1 @@
+@@ -122,1 +122,2 @@
+ bsd/dev/sweet_a630_pas.c			standard
 +bsd/dev/sweet_surya_gpu.c		standard
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -75,3 +75,4 @@
+@@ -74,4 +74,5 @@
+ extern void sweet_usb_probe(void);
  extern void sweet_cpufreq_max(void);
  extern void sweet_charger_start(void);
  extern void sweet_a630_probe(void);
