@@ -49,7 +49,8 @@ Bergamota watches `~/Library/Application Support/Bergamota/inbox/` for `*.json` 
 
 ```json
 {"kind":"enqueue","image":"enxerto/out/x.img","label":"...","arm":true}
-{"kind":"build","name":"N","kernel":"xnu/out-.../kernel.development.sweet","adt":"enxerto/out/beryllium-hi-3x.adt","preset":"default @3x","enqueue":true,"arm":true}
+{"kind":"build","name":"N","board":"beryllium","kernel":"xnu/out-.../kernel.development.sweet","adt":"enxerto/out/beryllium-hi-3x.adt","preset":"default @3x","enqueue":true,"arm":true}
+{"kind":"build","name":"surya-boot","board":"surya","kernel":"xnu/out-.../kernel.development.sweet","adt":"enxerto/out/surya-hi-3x.adt","preset":"Surya bring-up","enqueue":false}
 {"kind":"build","name":"N","kernel":"...","adt":"...","cmdline":"debug=0xc ..."}
 {"kind":"orangefox_reboot","enabled":true}
 {"kind":"send_now"}

@@ -2,7 +2,7 @@
 """Build the minimal Apple Device Tree that the SWEET xnu needs to boot.
 
 Only what the early boot path actually reads (see NOTES.md); every MMIO
-address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--board sweet|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE]
+address comes from a supported board profile. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--board sweet|surya|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE]
 """
 import hashlib, os, struct, sys
 
@@ -24,6 +24,7 @@ GICD, GICD_SIZE = 0x17a00000, 0x10000
 GICR, GICR_SIZE = 0x17a60000, 0x100000
 FB, FB_SIZE = 0x9c000000, 0x1700000
 SWEET_ECID = 0x5357454554000001  # 'SWEET' + 1, synthetic
+SURYA_ECID = 0x5355525941000001  # 'SURYA' + 1, synthetic
 FB_W, FB_H, FB_STRIDE = 1080, 2400, 1080 * 4
 # Internal UFS host (ufshc@1d84000 "ufs_mem"); QEMU virt has none
 UFS, UFS_SIZE = 0x01d84000, 0x3000
@@ -46,6 +47,18 @@ BOARDS = {
         compat=['xiaomi,sweet', 'qcom,sm7150'],
         # 0-5 Cortex-A55, 6-7 Cortex-A76
         cpu_compat='qcom,kryo470', big_from=6, freqs=(1804800000, 2304000000)),
+    'surya': dict(
+        # SM7150 Xiaomi common DTS: framebuffer@9c000000 is exactly 1080*2400*4;
+        # ramoops is a separate reservation at 0x9d800000.
+        fb=(0x9c000000, 1080 * 2400 * 4), fb_wh=(1080, 2400),
+        # xiaomi,sweet is retained for the current SweetPlatformExpert match;
+        # xiaomi,surya is the device identity used by board-specific code.
+        compat=['xiaomi,surya', 'xiaomi,sweet', 'qcom,sm7150'],
+        # Snapdragon 732G: six Kryo 470 Silver/A55 cores, two Gold/A76 cores.
+        cpu_compat='qcom,kryo470', big_from=6, freqs=(1804800000, 2304000000),
+        # Reuse sweet's low-memory window after the common framebuffer/ramdump
+        # reservations. This is an assumption until Surya's live FDT is checked.
+        mem=(PHYS_BASE, MEM_SIZE), ecid=SURYA_ECID),
     'beryllium': dict(
         # cont_splash_mem@9d400000, simple-framebuffer 1080x2246 (mainline beryllium-common)
         fb=(0x9d400000, 0x2400000), fb_wh=(1080, 2246),
@@ -189,7 +202,7 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
         # files), so e.g. DataMigration never records LastSystemVersion and
         # migrates on every boot. Synthetic ECID (not the phone's); chip-id
         # of the A11 that the iPhone X userland expects.
-        ('unique-chip-id', struct.pack('<Q', SWEET_ECID)),
+        ('unique-chip-id', struct.pack('<Q', b.get('ecid', SWEET_ECID))),
         ('chip-id', u32(0x8015)),
         # Security status as on a dev-fused, undemoted board (tuple 0,0,1,1):
         # MobileGestalt reads these from /chosen, and mobileactivationd's

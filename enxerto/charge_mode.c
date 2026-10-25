@@ -56,6 +56,11 @@ static void set_how(const char *s)
 
 int charge_wanted(uintptr_t dtb)
 {
+#if defined(ENXERTO_OFFMODE_CHARGING) && !ENXERTO_OFFMODE_CHARGING
+	/* Surya uses PM6150/PM6150L; this screen currently talks to the Poco F1 PMI8998 map. */
+	(void)dtb;
+	return 0;
+#else
 	const char *v = fdt_cmdline_opt(dtb, "bergamota.charge=");
 
 	if (v) {
@@ -68,6 +73,7 @@ int charge_wanted(uintptr_t dtb)
 		return 1;
 	}
 	return 0;
+#endif
 }
 
 /* ---- tiny string builder ---- */

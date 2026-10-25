@@ -9,6 +9,9 @@ The Bergamota Project's bootloader (*enxerto*, Portuguese for "graft": the piece
 
 ```sh
 BOARD=beryllium enxerto/build.sh [payload.bin]   # -> enxerto/out/enxerto-boot.img, bergamota-fastboot.img (what the Mac app boots with `fastboot boot`), charge-test.img, out/preview/*.ppm
+BOARD=surya DTB=../dtb/surya/dtb enxerto/build.sh [payload.bin]   # experimental Android v2 profile; PMIC charging code is disabled
 ```
+
+The Surya profile is not hardware-verified. See [`docs/SURYA_PORT.md`](../docs/SURYA_PORT.md) for device-tree collection and bring-up status. RAM-boot only; do not flash the generated image.
 
 `build.sh` also runs the host tests: it renders every screen to `out/preview/` and checks the fastboot state machine. Images built before the rename are called `shim/out/shim-boot-*.img`, and Bergamota still lists them.

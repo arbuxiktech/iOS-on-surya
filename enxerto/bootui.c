@@ -4,6 +4,7 @@
  * (logo, title, bar, status) is centred between the notch area and the log window.
  */
 #include "bootui.h"
+#include "board.h"
 #include "console.h"
 /* Apple logo for the hand-off screen: generated from the iOS root by tools/mkapplelogo.py (git-ignored). */
 #if defined(__has_include)
@@ -36,11 +37,7 @@
 #define PORTRAIT_X	((FB_W - PORTRAIT_W) / 2)
 #define BAR_TRACK	0xffbccb7aU	/* ink at 14 % over the lime */
 
-#ifdef BOARD_BERYLLIUM
-#define DEVICE_NAME	"POCO F1"
-#else
-#define DEVICE_NAME	"REDMI NOTE 10 PRO"
-#endif
+#define DEVICE_NAME	BOARD_DEVICE_NAME
 
 static int active;
 static unsigned bar_px;		/* filled width so far */

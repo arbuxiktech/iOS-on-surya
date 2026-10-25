@@ -175,6 +175,15 @@ private struct BuildPane: View {
         HStack(alignment: .top, spacing: 0) {
             Form {
                 Section("Inputs") {
+                    Picker("Device", selection: $b.targetBoard) {
+                        Text("Poco F1 (beryllium)").tag("beryllium")
+                        Text("Redmi Note 10 Pro (sweet)").tag("sweet")
+                        Text("Poco X3 NFC (surya)").tag("surya")
+                    }
+                    if b.targetBoard == "surya" {
+                        Text("Surya is at bring-up stage. The image builder disables charging support and uses a conservative one-core preset; boot with fastboot boot only until the hardware port is verified.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                     Picker("Kernel", selection: $b.kernelPath) {
                         if b.kernelPath.isEmpty { Text("(none found)").tag("") }
                         ForEach(b.kernels) { Text("\(b.kernelLabel($0))  \($0.date.formatted(date: .abbreviated, time: .shortened))").tag($0.path) }

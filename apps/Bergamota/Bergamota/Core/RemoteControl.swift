@@ -200,6 +200,8 @@ final class RemoteControl {
         guard !build.building else { throw RemoteError("a build is already running") }
         guard settings.repoValid else { throw RemoteError("repo path is invalid") }
         guard let name = req["name"] as? String, BuildModel.validName(name) else { throw RemoteError("missing or invalid \"name\" (letters, digits, . _ - only)") }
+        let board = (req["board"] as? String) ?? build.targetBoard
+        guard ["beryllium", "sweet", "surya"].contains(board) else { throw RemoteError("unsupported board \"\(board)\" (use beryllium, sweet, or surya)") }
         guard let k = req["kernel"] as? String else { throw RemoteError("missing \"kernel\"") }
         guard let a = req["adt"] as? String else { throw RemoteError("missing \"adt\"") }
         let kernel = try resolve(k, under: "xnu", suffix: nil)
@@ -212,6 +214,7 @@ final class RemoteControl {
             }
             cmdline = p.cmdline
         } else { throw RemoteError("need \"cmdline\" or \"preset\"") }
+        build.targetBoard = board
         build.kernelPath = kernel; build.adtPath = adt; build.cmdline = cmdline; build.imageName = name
         guard let img = await build.runBuild() else { throw RemoteError(build.lastResult ?? "build failed (see Boot Queue > Build output)") }
         var msg = "built \((img as NSString).lastPathComponent)"

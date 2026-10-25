@@ -6,14 +6,25 @@
  */
 #if defined(BOARD_BERYLLIUM)
 #define BOARD_NAME		"beryllium"
+#define BOARD_DEVICE_NAME	"POCO F1"
 /* reserved-memory cont_splash_mem@9d400000, simple-framebuffer 1080x2246 */
 #define FB_BASE			0x9d400000UL
 #define FB_W			1080
 #define FB_H			2246
 /* sdm845 imem@146bf000, restart_reason@65c */
 #define IMEM_RESTART_REASON	0x146bf65cUL
+#elif defined(BOARD_SURYA)
+#define BOARD_NAME		"surya"
+#define BOARD_DEVICE_NAME	"POCO X3 NFC"
+/* SM7150 common DT: simple-framebuffer@9c000000, 1080x2400 */
+#define FB_BASE			0x9c000000UL
+#define FB_W			1080
+#define FB_H			2400
+/* qcom,msm-imem restart_reason@65c (SM7150) */
+#define IMEM_RESTART_REASON	0x146aa65cUL
 #else
 #define BOARD_NAME		"sweet"
+#define BOARD_DEVICE_NAME	"REDMI NOTE 10 PRO"
 /* reserved-memory cont_splash_region@9c000000 */
 #define FB_BASE			0x9c000000UL
 #define FB_W			1080

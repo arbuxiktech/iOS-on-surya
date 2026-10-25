@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build Enxerto (the bootloader) and wrap it in an Android boot.img that ABL accepts.
 #   BOARD=sweet (default)  boot.img v2 mirroring the stock PixelOS header, DTB in the header
+#   BOARD=surya            boot.img v2, SM7150 Poco X3 NFC; charger paths stay disabled until ported
 #   BOARD=beryllium        boot.img v1, Image.gz + appended DTB like the Poco F1 ROM (SDM845 ABL)
 # Usage: [BOARD=..] [DTB=..] ./build.sh [payload.bin]
 set -euo pipefail
@@ -29,6 +30,7 @@ CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align
 case $BOARD in
 sweet)		DTB=${DTB:-../dtb/boot_unpacked/dtb} ;;
 beryllium)	DTB=${DTB:-../dtb/beryllium/dtb}; CFLAGS="$CFLAGS -DBOARD_BERYLLIUM" ;;
+surya)		DTB=${DTB:-../dtb/surya/dtb}; CFLAGS="$CFLAGS -DBOARD_SURYA -DENXERTO_CHARGER=0 -DENXERTO_OFFMODE_CHARGING=0" ;;
 *)		echo "error: unknown BOARD=$BOARD" >&2; exit 1 ;;
 esac
 [ -f "$DTB" ] || { echo "error: $DTB missing (stock DTB of the phone, see README)" >&2; exit 1; }
@@ -41,6 +43,14 @@ case ${BERGAMOTA:-} in
 1) CMDLINE="$CMDLINE bergamota.fastboot=1" ;;
 0) CMDLINE="$CMDLINE bergamota.fastboot=0" ;;
 esac
+if [ "$BOARD" = surya ]; then
+	# Surya shipped with Android 10; confirm the precise stock patch level from its boot image.
+	BOOT_OS_VERSION=10.0.0
+	BOOT_OS_PATCH_LEVEL=2020-09
+else
+	BOOT_OS_VERSION=17.0.0
+	BOOT_OS_PATCH_LEVEL=2035-06
+fi
 SRCS="start.S enxerto.c console.c artdraw.c bootui.c fbui.c mmu.c fdt.c loader.c ufs.c inflate.c usb_dwc3.c usb_power.c fastboot.c sparse.c storage.c blake2b.c bergamota.c pmic.c charge.c charge_mode.c charger.c"
 OBJS=""
 for f in $SRCS; do
@@ -76,7 +86,7 @@ else
 	mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin \
 		--dtb "$DTB" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000 \
 		--tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096 \
-		--os_version 17.0.0 --os_patch_level 2035-06 \
+		--os_version "$BOOT_OS_VERSION" --os_patch_level "$BOOT_OS_PATCH_LEVEL" \
 		--cmdline "$CMDLINE" -o out/enxerto-boot.img
 fi
 # Charging-screen test image (docs/BERGAMOTA_CHARGE.md): no payload, cmdline forces charging mode, so
@@ -90,7 +100,12 @@ if [ "$BOARD" = beryllium ]; then
 fi
 # Host render of the console layout and the boot screen (out/host.ppm, out/preview/*.ppm).
 mkdir -p out/preview
-cc -O1 -Wall $([ "$BOARD" = beryllium ] && echo -DBOARD_BERYLLIUM) $([ "${BOOTLOG:-0}" = 0 ] || echo -DBOOTUI_LOG=1) -o out/host_test console.c artdraw.c bootui.c fbui.c charge.c host_test.c && ./out/host_test
+HOST_BOARD=""
+case $BOARD in
+beryllium) HOST_BOARD=-DBOARD_BERYLLIUM ;;
+surya) HOST_BOARD=-DBOARD_SURYA ;;
+esac
+cc -O1 -Wall $HOST_BOARD $([ "${BOOTLOG:-0}" = 0 ] || echo -DBOOTUI_LOG=1) -o out/host_test console.c artdraw.c bootui.c fbui.c charge.c host_test.c && ./out/host_test
 # Host tests of the fastboot protocol, the sparse parser, GPT/allowlist storage and BLAKE2b (fake storage).
 cc -O1 -Wall -Wextra -o out/fastboot_test fastboot.c sparse.c storage.c blake2b.c fastboot_test.c && ./out/fastboot_test
 # The image Bergamota (the Mac app) boots from ABL with `fastboot boot`: fastboot forced on, empty ramdisk.
@@ -98,6 +113,14 @@ if [ "$BOARD" = beryllium ]; then
 	mkbootimg --header_version 1 --kernel out/Image.gz-dtb --ramdisk out/ramdisk-empty.bin \
 		--base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000 \
 		--tags_offset 0x100 --pagesize 4096 --os_version 16.0.0 --os_patch_level 2025-06 \
+		--cmdline "console=null bergamota.fastboot=1" -o out/bergamota-fastboot.img
+	# same image under the name the Mac app looks for first (the flash-capable build)
+	cp out/bergamota-fastboot.img out/bergamota-fastboot-flash.img
+elif [ "$BOARD" = surya ]; then
+	mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk-empty.bin \
+		--dtb "$DTB" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000 \
+		--tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096 \
+		--os_version "$BOOT_OS_VERSION" --os_patch_level "$BOOT_OS_PATCH_LEVEL" \
 		--cmdline "console=null bergamota.fastboot=1" -o out/bergamota-fastboot.img
 	# same image under the name the Mac app looks for first (the flash-capable build)
 	cp out/bergamota-fastboot.img out/bergamota-fastboot-flash.img

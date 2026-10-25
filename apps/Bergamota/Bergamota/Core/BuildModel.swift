@@ -17,10 +17,12 @@ struct CmdlinePreset: Identifiable, Codable, Hashable, Sendable {
 
 enum Presets {
     static let defaultCmdline = "debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30 sweetfb_vsync=1 sweetfb_scale=1 sweetfb_flip=1 sweetusb=2 sweetbattery=1 sweetsample=- sweetnetroute=1 sweetfb_hw=1"
+    static let suryaBringupCmdline = "debug=0xc serial=3 cpus=1 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetusb=2 sweettouch=0 sweetbattery=0 sweetgpu=0 sweetwlan=0 sweetbt=0"
     static var seed: [CmdlinePreset] {
         [CmdlinePreset(name: "default @3x", cmdline: defaultCmdline),
          CmdlinePreset(name: "bluetooth test", cmdline: defaultCmdline + " sweetwlan=2 sweetbtfast=1 sweetbtibs=1"),
-         CmdlinePreset(name: "ios18 poc", cmdline: defaultCmdline + " sweetarm64e=1")]
+         CmdlinePreset(name: "ios18 poc", cmdline: defaultCmdline + " sweetarm64e=1"),
+         CmdlinePreset(name: "Surya bring-up", cmdline: suryaBringupCmdline)]
     }
     static var fileURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bergamota")
@@ -28,7 +30,14 @@ enum Presets {
         return dir.appendingPathComponent("presets.json")
     }
     static func load() -> [CmdlinePreset] {
-        if let d = try? Data(contentsOf: fileURL), let p = try? JSONDecoder().decode([CmdlinePreset].self, from: d), !p.isEmpty { return p }
+        if let d = try? Data(contentsOf: fileURL), let saved = try? JSONDecoder().decode([CmdlinePreset].self, from: d), !saved.isEmpty {
+            var merged = saved
+            for seedPreset in seed where !merged.contains(where: { $0.name == seedPreset.name }) {
+                merged.append(seedPreset)
+            }
+            if merged.count != saved.count { save(merged) }
+            return merged
+        }
         let s = seed
         save(s)
         return s
@@ -47,6 +56,18 @@ final class BuildModel {
     var adts: [BootImage] = []
     var presets: [CmdlinePreset] = Presets.load()
 
+    var targetBoard: String {
+        didSet {
+            settings.targetBoard = targetBoard
+            adtPath = ""
+            let presetName = targetBoard == "surya" ? "Surya bring-up" : "default @3x"
+            if let p = presets.first(where: { $0.name == presetName }) {
+                selectedPresetID = p.id
+                cmdline = p.cmdline
+            }
+            rescan()
+        }
+    }
     var kernelPath = ""
     var adtPath = ""
     var cmdline = Presets.defaultCmdline
@@ -61,7 +82,14 @@ final class BuildModel {
     @ObservationIgnored private let settings: AppSettings
     init(settings: AppSettings) {
         self.settings = settings
-        selectedPresetID = presets.first?.id
+        targetBoard = settings.targetBoard
+        let presetName = settings.targetBoard == "surya" ? "Surya bring-up" : "default @3x"
+        if let p = presets.first(where: { $0.name == presetName }) {
+            selectedPresetID = p.id
+            cmdline = p.cmdline
+        } else {
+            selectedPresetID = presets.first?.id
+        }
     }
 
     // MARK: scanning
@@ -89,8 +117,9 @@ final class BuildModel {
         kernels = ks.sorted { $0.date > $1.date }
         if kernelPath.isEmpty || !fm.fileExists(atPath: kernelPath) { kernelPath = kernels.first?.path ?? "" }
         if adtPath.isEmpty || !fm.fileExists(atPath: adtPath) {
-            let def = outs.map { $0 + "/beryllium-hi-3x.adt" }.first { fm.fileExists(atPath: $0) }
-            adtPath = def ?? (adts.first?.path ?? "")
+            let preferred = targetBoard == "beryllium" ? "beryllium-hi-3x.adt" : "\(targetBoard)-hi-3x.adt"
+            let def = outs.map { $0 + "/" + preferred }.first { fm.fileExists(atPath: $0) }
+            adtPath = def ?? adts.first(where: { $0.name.localizedCaseInsensitiveContains(targetBoard) })?.path ?? ""
         }
     }
 
@@ -135,7 +164,7 @@ final class BuildModel {
         lastResult = nil
         lastBuiltImage = nil
         output = ""
-        let name = imageName, kernel = kernelPath, adt = adtPath
+        let name = imageName, kernel = kernelPath, adt = adtPath, board = targetBoard
         let cmd = cmdline.trimmingCharacters(in: .whitespacesAndNewlines)
         let repo = settings.repoURL.path
         let dir = settings.bootDir, base = settings.bootImageBase
@@ -151,7 +180,7 @@ final class BuildModel {
         }
         var ok = await step("mkpayload", python, ["tools/mkpayload.py", kernel, adt, payload, "--cmdline", cmd], cwd: repo)
         if ok {
-            ok = await step("build.sh", "/bin/bash", ["./build.sh", "out/payload-\(name).bin"], cwd: repo + "/" + dir, env: ["BOARD": "beryllium"])
+            ok = await step("build.sh", "/bin/bash", ["./build.sh", "out/payload-\(name).bin"], cwd: repo + "/" + dir, env: ["BOARD": board])
         }
         var result = "Build failed"
         var built: String?
