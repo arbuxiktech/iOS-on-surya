@@ -6,6 +6,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  #include <vm/pmap.h>
  #include <vm/vm_kern.h>
  #include <pexpert/pexpert.h>
++#include "sweet_board.h"
 +#include <kern/locks.h>
 +#include <sys/kpi_mbuf.h>
 +#include <sys/kpi_socket.h>
@@ -18,7 +19,6 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
 +#include <net/kpi_interface.h>
 +#include <net/kpi_protocol.h>
 +#include <netinet/in.h>
-+#include "sweet_board.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  void sweet_usb_probe(void);
