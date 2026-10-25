@@ -1,0 +1,406 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 7992a70..25a4b8d 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -191,6 +191,34 @@ void sweet_exec_delay(const char *leaf);
+ 
+ #include <mach/exclaves.h>
+ 
++/* Opt-in PID 1 exec checkpoints for Surya bring-up; no change to exec policy.
++ * Keep output bounded if launchd subsequently spawns many children. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++void sweet_init_exec_trace(const char *stage, int result);
++
++void
++sweet_init_exec_trace(const char *stage, int result)
++{
++	static int enabled = -1;
++	static unsigned int sequence;
++
++	if (proc_getpid(current_proc()) != 1) {
++		return;
++	}
++	if (enabled < 0) {
++		int on = 0;
++		PE_parse_boot_argn("sweetinittrace", &on, sizeof(on));
++		enabled = on != 0;
++	}
++	if (enabled && sequence < 128) {
++		printf("INIT %u: %s rc=%d\n", ++sequence, stage, result);
++	}
++}
++#define SWEET_INIT_TRACE(stage, result) sweet_init_exec_trace(stage, result)
++#else
++#define SWEET_INIT_TRACE(stage, result) ((void)0)
++#endif
++
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+ /* 0153: every EINVAL return in this file reports its source line ("SWEET EINVAL file:line pid") */
+ static inline int
+@@ -1342,7 +1370,9 @@ grade:
+ #endif
+ 
+ 	/* Copy in arguments/environment from the old process */
++	SWEET_INIT_TRACE("exec strings begin", 0);
+ 	error = exec_extract_strings(imgp);
++	SWEET_INIT_TRACE("exec strings done", error);
+ 	if (error) {
+ 		goto bad;
+ 	}
+@@ -1383,7 +1413,9 @@ grade:
+ 	/*
+ 	 * Actually load the image file we previously decided to load.
+ 	 */
++	SWEET_INIT_TRACE("load Mach-O begin", 0);
+ 	lret = load_machfile(imgp, mach_header, thread, &map, &load_result);
++	SWEET_INIT_TRACE("load Mach-O done", (int)lret);
+ 	if (lret != LOAD_SUCCESS) {
+ 		error = load_return_to_errno(lret);
+ 
+@@ -2297,12 +2329,16 @@ exec_activate_image(struct image_params *imgp)
+ 		p = current_proc();
+ 	}
+ 
++	SWEET_INIT_TRACE("execargs begin", 0);
+ 	error = execargs_alloc(imgp);
++	SWEET_INIT_TRACE("execargs done", error);
+ 	if (error) {
+ 		goto bad_notrans;
+ 	}
+ 
++	SWEET_INIT_TRACE("exec path begin", 0);
+ 	error = exec_save_path(imgp, imgp->ip_user_fname, imgp->ip_seg, &excpath);
++	SWEET_INIT_TRACE("exec path done", error);
+ 	if (error) {
+ 		goto bad_notrans;
+ 	}
+@@ -2316,7 +2352,9 @@ exec_activate_image(struct image_params *imgp)
+ 	    UIO_SYSSPACE, CAST_USER_ADDR_T(excpath), imgp->ip_vfs_context);
+ 
+ again:
++	SWEET_INIT_TRACE("exec namei begin", 0);
+ 	error = namei(ndp);
++	SWEET_INIT_TRACE("exec namei done", error);
+ 	if (error) {
+ 		if (error == ERESTART) {
+ 			error = EINTR;
+@@ -2333,6 +2371,7 @@ again:
+ 	 * mechanism ensures that the value doesn't change after we release
+ 	 * the lock.
+ 	 */
++	SWEET_INIT_TRACE("exec transition begin", 0);
+ 	proc_lock(p);
+ 	if (p->p_lflag & P_LEXIT) {
+ 		error = EDEADLK;
+@@ -2341,11 +2380,14 @@ again:
+ 	}
+ 	error = proc_transstart(p, 1, 0);
+ 	proc_unlock(p);
++	SWEET_INIT_TRACE("exec transition done", error);
+ 	if (error) {
+ 		goto bad_notrans;
+ 	}
+ 
++	SWEET_INIT_TRACE("exec permissions begin", 0);
+ 	error = exec_check_permissions(imgp);
++	SWEET_INIT_TRACE("exec permissions done", error);
+ 	if (error) {
+ 		goto bad;
+ 	}
+@@ -2356,10 +2398,12 @@ again:
+ 		*imgp->ip_origvattr = *imgp->ip_vattr;
+ 	}
+ 
++	SWEET_INIT_TRACE("exec header read begin", 0);
+ 	error = vn_rdwr(UIO_READ, imgp->ip_vp, imgp->ip_vdata, PAGE_SIZE, 0,
+ 	    UIO_SYSSPACE, IO_NODELOCKED,
+ 	    vfs_context_ucred(imgp->ip_vfs_context),
+ 	    &resid, vfs_context_proc(imgp->ip_vfs_context));
++	SWEET_INIT_TRACE("exec header read done", error);
+ 	if (error) {
+ 		goto bad;
+ 	}
+@@ -2376,7 +2420,9 @@ encapsulated_binary:
+ 	}
+ 	error = -1;
+ 	for (i = 0; error == -1 && execsw[i].ex_imgact != NULL; i++) {
++		SWEET_INIT_TRACE("image activator begin", 0);
+ 		error = (*execsw[i].ex_imgact)(imgp);
++		SWEET_INIT_TRACE("image activator done", error);
+ 
+ 		switch (error) {
+ 		/* case -1: not claimed: continue */
+@@ -4098,7 +4144,9 @@ do_fork1:
+ 		 * the old proc in pid hash and other lists that make
+ 		 * the proc visible to the system.
+ 		 */
++		SWEET_INIT_TRACE("clone exec task begin", 0);
+ 		imgp->ip_new_thread = cloneproc(old_task, NULL, p, CLONEPROC_EXEC);
++		SWEET_INIT_TRACE("clone exec task done", imgp->ip_new_thread == NULL ? ENOMEM : 0);
+ 
+ 		/* task and thread ref returned by cloneproc */
+ 		if (imgp->ip_new_thread == NULL) {
+@@ -4335,7 +4383,9 @@ do_fork1:
+ 	 * Warning: If activation failed after point of no return, it returns error
+ 	 * as 0 and pretends the call succeeded.
+ 	 */
++	SWEET_INIT_TRACE("activate image begin", 0);
+ 	error = exec_activate_image(imgp);
++	SWEET_INIT_TRACE("activate image done", error);
+ #if defined(HAS_APPLE_PAC)
+ 	const uint8_t disable_user_jop = imgp->ip_flags & IMGPF_NOJOP ? TRUE : FALSE;
+ 	ml_task_set_jop_pid_from_shared_region(new_task, disable_user_jop);
+@@ -4366,7 +4416,9 @@ do_fork1:
+ 	 */
+ 
+ 	if (error == 0 && !spawn_no_exec) {
++		SWEET_INIT_TRACE("switch exec task begin", 0);
+ 		p = proc_exec_switch_task(current_proc(), p, old_task, new_task, imgp, &inherit);
++		SWEET_INIT_TRACE("switch exec task done", 0);
+ 		/* proc ref returned */
+ 		should_release_proc_ref = TRUE;
+ 	}
+@@ -4768,7 +4820,9 @@ bad:
+ 	 * fire.
+ 	 */
+ 	if (error == 0) {
++		SWEET_INIT_TRACE("process signature begin", 0);
+ 		error = process_signature(p, imgp);
++		SWEET_INIT_TRACE("process signature done", error);
+ 
+ 		/*
+ 		 * Pay for our earlier safety; deliver the delayed signals from
+@@ -5222,7 +5276,9 @@ execve(proc_t p, struct execve_args *uap, int32_t *retval)
+ 	muap.argp = uap->argp;
+ 	muap.envp = uap->envp;
+ 	muap.mac_p = USER_ADDR_NULL;
++	SWEET_INIT_TRACE("execve begin", 0);
+ 	err = __mac_execve(p, &muap, retval);
++	SWEET_INIT_TRACE("execve done", err);
+ 
+ 	return err;
+ }
+@@ -5277,7 +5333,9 @@ __mac_execve(proc_t p, struct __mac_execve_args *uap, int32_t *retval __unused)
+ 	/* Allocate a big chunk for locals instead of using stack since these
+ 	 * structures a pretty big.
+ 	 */
++	SWEET_INIT_TRACE("exec locals begin", 0);
+ 	__execve_data = kalloc_type(typeof(*__execve_data), Z_WAITOK | Z_ZERO);
++	SWEET_INIT_TRACE("exec locals done", __execve_data == NULL ? ENOMEM : 0);
+ 	if (__execve_data == NULL) {
+ 		error = ENOMEM;
+ 		goto exit_with_error;
+@@ -5322,7 +5380,9 @@ __mac_execve(proc_t p, struct __mac_execve_args *uap, int32_t *retval __unused)
+ 		 * the old proc in pid hash and other lists that make
+ 		 * the proc visible to the system.
+ 		 */
++		SWEET_INIT_TRACE("clone exec task begin", 0);
+ 		imgp->ip_new_thread = cloneproc(old_task, NULL, p, CLONEPROC_EXEC);
++		SWEET_INIT_TRACE("clone exec task done", imgp->ip_new_thread == NULL ? ENOMEM : 0);
+ 		/* task and thread ref returned by cloneproc */
+ 		if (imgp->ip_new_thread == NULL) {
+ 			(void)chgproccnt(kauth_getruid(), -1);
+@@ -5349,7 +5409,9 @@ __mac_execve(proc_t p, struct __mac_execve_args *uap, int32_t *retval __unused)
+ 	 * Warning: If activation failed after point of no return, it returns error
+ 	 * as 0 and pretends the call succeeded.
+ 	 */
++	SWEET_INIT_TRACE("activate image begin", 0);
+ 	error = exec_activate_image(imgp);
++	SWEET_INIT_TRACE("activate image done", error);
+ 	/* thread and task ref returned for vfexec case */
+ 
+ 	if (imgp->ip_new_thread != NULL) {
+@@ -5365,7 +5427,9 @@ __mac_execve(proc_t p, struct __mac_execve_args *uap, int32_t *retval __unused)
+ 	}
+ 
+ 	if (!error) {
++		SWEET_INIT_TRACE("switch exec task begin", 0);
+ 		p = proc_exec_switch_task(current_proc(), p, old_task, new_task, imgp, &inherit);
++		SWEET_INIT_TRACE("switch exec task done", 0);
+ 		/* proc ref returned */
+ 		should_release_proc_ref = TRUE;
+ 	}
+@@ -5384,7 +5448,9 @@ __mac_execve(proc_t p, struct __mac_execve_args *uap, int32_t *retval __unused)
+ 		 * until the csblob in the textvp is accurately reflected.
+ 		 */
+ 		ipc_task_enable(new_task);
++		SWEET_INIT_TRACE("process signature begin", 0);
+ 		error = process_signature(p, imgp);
++		SWEET_INIT_TRACE("process signature done", error);
+ 	}
+ 
+ #if defined(HAS_APPLE_PAC)
+@@ -7160,6 +7226,8 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
+ 	struct execve_args init_exec_args;
+ 	user_addr_t argv0 = USER_ADDR_NULL, argv1 = USER_ADDR_NULL;
+ 
++	SWEET_INIT_TRACE("load init enter", 0);
++
+ 	/*
+ 	 * Validate inputs and pre-conditions
+ 	 */
+@@ -7235,7 +7303,10 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
+ 	 */
+ 	set_security_token(p, proc_ucred_unsafe(p));
+ 
+-	return execve(p, &init_exec_args, retval);
++	SWEET_INIT_TRACE("init arguments ready", 0);
++	error = execve(p, &init_exec_args, retval);
++	SWEET_INIT_TRACE("init exec returned", error);
++	return error;
+ }
+ 
+ static const char * init_programs[] = {
+diff --git a/bsd/kern/mach_loader.c b/bsd/kern/mach_loader.c
+index 9e2d069..cf5cd16 100644
+--- a/bsd/kern/mach_loader.c
++++ b/bsd/kern/mach_loader.c
+@@ -95,6 +95,13 @@
+ 
+ #include "kern_exec_internal.h"
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern void sweet_init_exec_trace(const char *stage, int result);
++#define SWEET_INIT_TRACE(stage, result) sweet_init_exec_trace(stage, result)
++#else
++#define SWEET_INIT_TRACE(stage, result) ((void)0)
++#endif
++
+ 
+ 
+ /* An empty load_result_t */
+@@ -493,15 +500,19 @@ load_machfile(
+ 	}
+ #endif /* XNU_TARGET_OS_OSX && _POSIX_SPAWN_FORCE_4K_PAGES && PMAP_CREATE_FORCE_4K_PAGE */
+ 
++	SWEET_INIT_TRACE("Mach-O pmap begin", 0);
+ 	pmap = pmap_create_options(get_task_ledger(ledger_task),
+ 	    (vm_map_size_t) 0,
+ 	    pmap_flags);
++	SWEET_INIT_TRACE("Mach-O pmap done", pmap == NULL ? LOAD_RESOURCE : 0);
+ 	if (pmap == NULL) {
+ 		return LOAD_RESOURCE;
+ 	}
++	SWEET_INIT_TRACE("Mach-O map begin", 0);
+ 	map = vm_map_create_options(pmap, 0,
+ 	    vm_compute_max_offset(result->is_64bit_addr),
+ 	    VM_MAP_CREATE_PAGEABLE);
++	SWEET_INIT_TRACE("Mach-O map done", 0);
+ 
+ #if defined(__arm64__)
+ 	if (result->is_64bit_addr) {
+@@ -540,6 +551,7 @@ load_machfile(
+ 	/*
+ 	 * Compute a random offset for ASLR, and an independent random offset for dyld.
+ 	 */
++	SWEET_INIT_TRACE("Mach-O ASLR begin", 0);
+ 	if (!(imgp->ip_flags & IMGPF_DISABLE_ASLR)) {
+ 		vm_map_get_max_aslr_slide_section(map, &aslr_section_offset, &aslr_section_size);
+ 		aslr_section_offset = (random() % aslr_section_offset) * aslr_section_size;
+@@ -555,6 +567,7 @@ load_machfile(
+ 
+ 		aslr_page_offset += aslr_section_offset;
+ 	}
++	SWEET_INIT_TRACE("Mach-O ASLR done", 0);
+ 	if (vm_map_page_shift(map) < (int)PAGE_SHIFT) {
+ 		DEBUG4K_LOAD("slide=0x%llx dyld_slide=0x%llx\n", aslr_page_offset, dyld_aslr_page_offset);
+ 	}
+@@ -571,9 +584,11 @@ load_machfile(
+ 	result->is_64bit_addr = ((imgp->ip_flags & IMGPF_IS_64BIT_ADDR) == IMGPF_IS_64BIT_ADDR);
+ 	result->is_64bit_data = ((imgp->ip_flags & IMGPF_IS_64BIT_DATA) == IMGPF_IS_64BIT_DATA);
+ 
++	SWEET_INIT_TRACE("Mach-O parse begin", 0);
+ 	lret = parse_machfile(vp, map, thread, header, file_offset, macho_size,
+ 	    0, aslr_page_offset, dyld_aslr_page_offset, result,
+ 	    NULL, imgp);
++	SWEET_INIT_TRACE("Mach-O parse done", (int)lret);
+ 
+ 	if (lret != LOAD_SUCCESS) {
+ 		imgp->ip_free_map = map;
+@@ -670,14 +685,18 @@ load_machfile(
+ 		 * that may have been left behind by the workqueue threads
+ 		 * as they exited (and then clean up the work queue itself).
+ 		 */
++		SWEET_INIT_TRACE("old task halt begin", 0);
+ 		kret = task_start_halt(task);
++		SWEET_INIT_TRACE("old task halt started", (int)kret);
+ 		if (kret != KERN_SUCCESS) {
+ 			imgp->ip_free_map = map;
+ 			return LOAD_FAILURE;
+ 		}
+ 		proc_transcommit(p, 0);
+ 		workq_mark_exiting(p);
++		SWEET_INIT_TRACE("old task halt wait", 0);
+ 		task_complete_halt(task);
++		SWEET_INIT_TRACE("old task halt done", 0);
+ 		workq_exit(p);
+ 
+ 		/*
+@@ -913,8 +932,10 @@ parse_machfile(
+ 		return LOAD_NOSPACE;
+ 	}
+ 
++	SWEET_INIT_TRACE("Mach-O commands read begin", 0);
+ 	error = vn_rdwr(UIO_READ, vp, addr, (int)alloc_size, file_offset,
+ 	    UIO_SYSSPACE, 0, vfs_context_ucred(imgp->ip_vfs_context), &resid, p);
++	SWEET_INIT_TRACE("Mach-O commands read done", error);
+ 	if (error) {
+ 		kfree_data(addr, alloc_size);
+ 		return LOAD_IOERROR;
+@@ -945,6 +966,7 @@ parse_machfile(
+ #endif
+ 
+ 	for (pass = 0; pass <= 3; pass++) {
++		SWEET_INIT_TRACE("Mach-O pass", pass);
+ 		if (pass == 1) {
+ #if __arm64__
+ 			boolean_t       is_pie;
+@@ -1286,6 +1308,7 @@ parse_machfile(
+ 				 *  load signatures & store in uip
+ 				 *  set VM object "signed_pages"
+ 				 */
++				SWEET_INIT_TRACE("Mach-O signature begin", 0);
+ 				ret = load_code_signature(
+ 					(struct linkedit_data_command *) lcp,
+ 					vp,
+@@ -1295,6 +1318,7 @@ parse_machfile(
+ 					header->cpusubtype,
+ 					result,
+ 					imgp);
++				SWEET_INIT_TRACE("Mach-O signature done", (int)ret);
+ 				if (ret != LOAD_SUCCESS) {
+ 					printf("proc %d: load code signature error %d "
+ 					    "for file \"%s\"\n",
+@@ -1474,8 +1498,10 @@ parse_machfile(
+ 			 * load the dylinker, and slide it by the independent DYLD ASLR
+ 			 * offset regardless of the PIE-ness of the main binary.
+ 			 */
++			SWEET_INIT_TRACE("dyld load begin", 0);
+ 			ret = load_dylinker(dlp, header->cputype, map, thread, depth,
+ 			    dyld_aslr_offset, result, imgp);
++			SWEET_INIT_TRACE("dyld load done", (int)ret);
+ 		}
+ 
+ #if CONFIG_ROSETTA
+@@ -2970,8 +2996,10 @@ load_dylinker(
+ 		cputype = (cputype & CPU_ARCH_MASK) | (cpu_type() & ~CPU_ARCH_MASK);
+ 	}
+ 
++	SWEET_INIT_TRACE("dyld vnode begin", 0);
+ 	ret = get_macho_vnode(name, cputype, header,
+ 	    &file_offset, &macho_size, macho_data, &vp, imgp);
++	SWEET_INIT_TRACE("dyld vnode done", (int)ret);
+ 	if (ret) {
+ 		goto novp_out;
+ 	}
+@@ -2980,8 +3008,10 @@ load_dylinker(
+ 	myresult->is_64bit_addr = result->is_64bit_addr;
+ 	myresult->is_64bit_data = result->is_64bit_data;
+ 
++	SWEET_INIT_TRACE("dyld parse begin", 0);
+ 	ret = parse_machfile(vp, map, thread, header, file_offset,
+ 	    macho_size, depth, slide, 0, myresult, result, imgp);
++	SWEET_INIT_TRACE("dyld parse done", (int)ret);
+ 
+ 	if (ret == LOAD_SUCCESS) {
+ 		if (result->threadstate) {
