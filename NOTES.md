@@ -4,6 +4,7 @@
 * Added XNU patch `0256-surya-cpufreq-hw.patch`: Surya's off-by-default path maps SM7150 freq-domain0/1 from upstream `sm7150.dtsi` (`0x18323000`, `0x18325800`) and reads the common QCOM v1 frequency LUT/performance-state layout. Its A55/A76 allowlists match the upstream `cpu0_opp_table` and `cpu6_opp_table` values.
 * `sweetcpufreq=1` is read-only on Surya; `sweetcpufreq=2` writes the highest LUT entry that exactly matches an upstream OPP. No voltage or thermal-control registers are written. Beryllium keeps its previous default behavior. Runtime frequency scaling is not implemented.
 * This mapping comes from upstream SoC DTS and the generic QCOM cpufreq-hw driver; the Surya iOS kernel has not been built or hardware-verified. No CPU register writes, device boot or flash were performed. `git apply --stat` parses the patch.
+* Commit `fd6bfb5` records this source adaptation.
 
 ### >>> Surya PM6150 RTC and PS_HOLD source adaptations (2026-10-25) <<<
 * Added XNU patch `0255-surya-pm6150-rtc.patch`: enables the existing IORTC path for Surya and reads PM6150 SID 0 RTC registers (`0x6046` control, `0x6048` seconds) with a stored wall-clock offset in alarm data (`0x6140`/`0x6142`) only when alarm control `0x6146` is disabled. SPMI access is narrowly allowlisted; writes are limited to those two 16-bit offset chunks and the existing SPMI layer refuses writes unless the application processor owns the APID.
