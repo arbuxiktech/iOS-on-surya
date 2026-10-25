@@ -40,7 +40,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  #include "../../../bsd/dev/sweet_board.h"
  #include "../../../bsd/dev/sweet_spmi.h"
 +static uint16_t sweet_wled5_max, sweet_wled5_floor;
- extern "C" int sweet_smmu_probe_sid(unsigned sid, unsigned level);
+ extern "C" int sweet_smmu_probe_sid(unsigned sid, unsigned level); /* bsd/dev/sweet_smmu.c, read only */
 @@ -999,10 +1000,16 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  		/* 0243: iOS's brightness, on both WLED strings (the floor keeps the panel readable: 0 is iOS's "off", which is
  		 * RequestPowerChange's job) */
