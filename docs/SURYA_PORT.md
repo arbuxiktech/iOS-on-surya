@@ -2,7 +2,7 @@
 
 Surya is the Poco X3 NFC (`surya`, Qualcomm SM7150-AC / Snapdragon 732G). The working iOS port in this repository targets the Poco F1 (`beryllium`, SDM845). The repo now contains source-level Surya build and bring-up plumbing, but it does **not** produce a verified Surya iOS boot.
 
-The repo now has Surya board selection in Enxerto, the Apple Device Tree generator, the XNU bring-up patches, Renegade's full-root boot helper, and Bergamota's builder and file-based build API. This is a source-level port scaffold; it has not been built or booted on a Poco X3 NFC. The user-provided EEA V14.0.5.0.SJGEUXM ROM has been inspected. It gives us the SM7150 SoC tree and Qualcomm overlays, but a live `/sys/firmware/fdt` is still needed to confirm the active overlay, memory map and this phone's panel.
+The repo now has Surya board selection in Enxerto, the Apple Device Tree generator, the XNU bring-up patches, Renegade's full-root boot helper, and Bergamota's builder and file-based build API. This is a source-level port scaffold; it has not been built or booted on a Poco X3 NFC. The user-provided EEA V14.0.5.0.SJGEUXM ROM has been inspected, and Android reports `ro.boot.dtbo_idx=16`, confirming the selected overlay. A live `/sys/firmware/fdt` is still needed to inspect the merged tree, memory map and this phone's panel.
 
 ## Upstream hardware facts used
 
@@ -36,7 +36,7 @@ The supplied `V14.0.5.0.SJGEUXM` EEA fastboot ROM contains `boot.img` and `dtbo.
 - `rom-11.dtb` is the SM7150/SDMMAGPIE SoC tree (`qcom,msm-id = <0x16d 0>`, generic `qcom,board-id = <0 0>`). Its model is `Qualcomm Technologies, Inc. SDMMAGPIE SoC`; it has no Surya model, panel node or touchscreen node.
 - `rom-12.dtb` is the SDMMAGPIEP variant (`qcom,msm-id = <0x16e 0>`), so it is not the SM7150 candidate for Surya.
 
-The 32-entry `dtbo.img` contains Qualcomm IDP, QRD, ATP and RUMI board profiles. Overlay `rom-16.dtbo` is the closest candidate: its root says `IDP` / `qcom,sdmmagpie-idp`, with `qcom,msm-id = <0x16d 0>` and `qcom,board-id = <0x22 0>`. That board ID matches the upstream Surya DTS. The overlay includes both NT36672C Huaxing and Tianma panel definitions, and a `novatek,NVT-ts-spi` touchscreen node, but it does not identify itself as `xiaomi,surya` or tell us which panel is installed. Treat it as a candidate overlay, not as a confirmed merged phone tree.
+The 32-entry `dtbo.img` contains Qualcomm IDP, QRD, ATP and RUMI board profiles. The user reports `ro.boot.dtbo_idx=16`, confirming that `rom-16.dtbo` is selected. Its root says `IDP` / `qcom,sdmmagpie-idp`, with `qcom,msm-id = <0x16d 0>` and `qcom,board-id = <0x22 0>`, matching the upstream Surya DTS. It includes both NT36672C Huaxing and Tianma panel definitions and a `novatek,NVT-ts-spi` touchscreen node. Android also reports `ro.product.board=surya` and `ro.board.platform=sm6150`. The active overlay still does not identify which panel is installed; a live FDT is needed to inspect the merged device tree.
 
 The extracted stock candidates are local-only under ignored `dtb/surya/rom-*.dtb` and `dtb/surya/stock-dtbo/`; neither the ROM nor its extracted binary blobs are committed. The extractor for Android DT table overlays is `tools/extract-dtbo.py`. The current `dtb/surya/dtb` expected by Enxerto is intentionally not populated with generic `rom-11.dtb`.
 
@@ -65,16 +65,15 @@ python3 tools/extract-dtb.py "$ROM/boot.img" dtb/surya
 python3 tools/extract-dtbo.py "$ROM/dtbo.img" dtb/surya/stock-dtbo
 ~~~
 
-To capture the tree the bootloader actually passed to the running kernel, boot stock Android with root or use a trusted recovery, then copy the binary FDT on-device before pulling it:
+To try the live FDT from stock Android, write it under Android's temporary-data directory, then pull it to the host:
 
 ~~~sh
-adb shell su -c "cat /sys/firmware/fdt > /sdcard/surya-live.dtb"
-adb pull /sdcard/surya-live.dtb backup/surya-live.dtb
+adb shell "cat /sys/firmware/fdt > /data/local/tmp/surya-live.dtb"
+adb pull /data/local/tmp/surya-live.dtb backup/surya-live.dtb
 adb shell getprop ro.boot.dtbo_idx
-adb shell cat /proc/cmdline
 ~~~
 
-In recovery, where the shell is already root, copy the FDT to `/tmp/surya-live.dtb` and pull it from there. Check the live tree's model, SoC and board IDs, memory nodes, reserved-memory regions, panel and touchscreen before selecting a DTB for Enxerto. `extract-dtb.py --live` can compare the live IDs with boot candidates; this ROM's generic SDMMAGPIE base ID may not match a post-overlay live tree, so an unmatched result must be reviewed rather than forced.
+A non-rooted stock shell may be denied access to `/sys/firmware/fdt`; this phone also denies `/proc/cmdline`. If the FDT read fails, use a trusted recovery shell, where root can copy it to `/tmp/surya-live.dtb` before pulling it. `/tmp` is not present on this stock Android shell. Check the live tree's model, SoC and board IDs, memory nodes, reserved-memory regions, panel and touchscreen before selecting a DTB for Enxerto. `extract-dtb.py --live` can compare live IDs with boot candidates; this ROM's generic SDMMAGPIE base ID may not match a post-overlay live tree, so review an unmatched result rather than forcing a selection.
 
 ## Building the groundwork images
 
@@ -90,7 +89,7 @@ The command above expects the phone's extracted stock DTB at `dtb/surya/dtb`; th
 
 ## Work still needed
 
-1. Capture the runtime FDT and confirm the active DTBO entry, live board ID, assumed `0xb0000000..0xfd000000` kernel memory window and panel variant from an actual Surya.
+1. Capture the runtime FDT and confirm the live board ID, assumed `0xb0000000..0xfd000000` kernel memory window and panel variant from an actual Surya. The selected DTBO entry is confirmed as 16.
 2. Bring up XNU's display path and backlight for both panel vendors; verify framebuffer handoff and brightness control.
 3. Port the Novatek `nt36xxx` SPI touchscreen. Verify the inherited PM6150L GPIO2/PM6150 PON key path and read-only battery estimate on hardware; keep charger writes off until mapped against Surya's own device tree.
 4. Bring up the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors and NFC; these are not covered by the Poco F1 drivers.
