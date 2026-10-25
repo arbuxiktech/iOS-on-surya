@@ -4,6 +4,7 @@
 * Added XNU patch `0257-surya-adreno618-readonly-probe.patch`, a separate Surya-gated `sweetgpu=1` report for ABL's Adreno 618 state. It checks the SM7150 GCC/GPUCC clock and power gates before reading GMU or GPU-core registers. `sweetgpu>1` is rejected before MMIO. The probe never writes registers, loads firmware, touches SMMU state, or submits GPU work.
 * The live FDT and pinned SM7150 DTS identify GPU `0x05000000`, GMU `0x0506a000`, GPUCC `0x05090000`, and SMMU `0x05040000`. The Adreno 630 stages remain Beryllium-only; Surya's GCC DDRSS AXI, PDC windows, GMU chip ID, HFI votes and `a615_zap.mbn` firmware format differ and are not ported.
 * Updated `docs/SURYA_PORT.md`, `docs/GPU_A630_BRINGUP.md` and `xnu/README.md` to mark the exact scope. `git apply --stat` parses patch 0257. No XNU build, test, device boot or flash was performed. The probe is source-only and unverified; full GPU bring-up remains open.
+* Commit `3b10125` records this probe and its scope documentation.
 
 ### >>> Surya cpufreq-hw source adaptation (2026-10-25) <<<
 * Added XNU patch `0256-surya-cpufreq-hw.patch`: Surya's off-by-default path maps SM7150 freq-domain0/1 from upstream `sm7150.dtsi` (`0x18323000`, `0x18325800`) and reads the common QCOM v1 frequency LUT/performance-state layout. Its A55/A76 allowlists match the upstream `cpu0_opp_table` and `cpu6_opp_table` values.
