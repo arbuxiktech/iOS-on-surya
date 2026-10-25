@@ -54,6 +54,7 @@ The community [Surya Android device configuration](https://github.com/koz-nik/an
 - XNU patch 0252 adds a Surya-only PM6150L WLED5 brightness backend. It detects the active WLED module and width, preserves unrelated register bits, and remains opt-in. This is a source port only; the kernel series has not been built and the backlight has not been exercised on the phone.
 - XNU patch 0255 adapts the IORTC wall-clock path to the live PM6150 RTC at SID 0 (`0x6000` RTC and `0x6100` alarm). It follows the standard PM8941-compatible register layout used by upstream Linux, reads the RTC and writes an offset in alarm data only when the alarm is disabled; SPMI writes still require AP ownership. This is source-only and unverified.
 - XNU patch 0254 adapts the shared PS_HOLD reset path and the IMEM restart-reason word to the addresses in the captured Surya FDT. The PM6150 reboot-reason write is deliberately not reused from Beryllium; reboot mode handling is source-only and hardware-unverified.
+- XNU patch 0256 adds an off-by-default Surya cpufreq-hw path using the upstream SM7150 domain addresses and CPU OPP lists. `sweetcpufreq=1` reads both LUTs without changing state; `sweetcpufreq=2` selects the highest listed OPP. This relies on upstream SoC data, has not been built or exercised, and does not add runtime frequency scaling.
 - XNU's existing read-only PM6150L GPIO2 volume-up and PM6150 PON key path stays enabled. The existing PM6150 voltage-derived battery estimate is also enabled read-only; it is not calibrated for Surya and Enxerto charger writes/off-mode charging remain disabled.
 - Bergamota's Build pane and file-based build request accept a target board and a stock/Huaxing/Tianma DTB choice. The Surya preset starts with one CPU, leaves the kernel console visible, enables the inherited SM7150 USB path for logs/control and the existing volume-key/read-only battery paths, and disables unported touch, GPU and radio paths.
 
@@ -78,7 +79,7 @@ The `sweet` compatibility alias is needed so the existing SM7150 kernel platform
 | Modem, audio, cameras, sensors and NFC | Not ported | Identify each live-FDT device and implement its bus, power, firmware and userland interfaces |
 | Reboot / reset | Patch 0254 maps Surya PS_HOLD (`0x0c264000`) and IMEM (`0x146aa000`, `restart_reason@0x65c`) from the live FDT; Surya skips Beryllium PM8998 PON writes | Compile and verify normal reset and bootloader/recovery/Bergamota reasons on hardware; map PM6150 PON restart-reason handling before enabling writes |
 | RTC / wall clock | Patch 0255 adapts the PM6150 SID 0 RTC/alarm path and only stores its wall-clock offset while the alarm is disabled | Confirm AP read/write ownership, persisted time and alarm behavior on hardware; no build or RTC test has been done |
-| CPU frequency | Existing device-specific path is Beryllium-gated | Port Surya's Kryo 470 cluster/clock and voltage controls; validate safe operating points |
+| CPU frequency | Patch 0256 adds an off-by-default SM7150 cpufreq-hw probe and opt-in max OPP selection, with exact upstream A55/A76 OPP allowlists | Build; inspect both LUTs with `sweetcpufreq=1`, then separately validate `sweetcpufreq=2` and thermal behavior; runtime scaling is not implemented |
 | Renegade and Bergamota | Board selection and build plumbing exist | Validate Surya GPT/partition and USB identities, then exercise each operation on the device |
 
 ## Collecting device-specific input
@@ -128,7 +129,7 @@ The command above expects the extracted stock base DTB at `dtb/surya/dtb`; the m
 1. Build Enxerto and its Surya ADT; RAM-boot with stock DTBO entry 16 and confirm ABL passes the merged IDP/Tianma/touch tree. No iOS boot has been attempted yet.
 2. Verify the WLED5 backend and framebuffer handoff on the live panel. Bring up the Novatek path one stage at a time; the current source uses polling and software reset only, so IRQ/reset integration and touch-event verification remain.
 3. Verify UFS, USB, PM6150/PON keys and the read-only battery estimate. Keep charger writes off until their registers and safety behavior are mapped for Surya.
-4. Port the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors, NFC and CPU-frequency drivers. Reboot and RTC now have source adaptations but remain unverified. This remains far from a complete device driver port.
+4. Port the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors and NFC. Reboot, RTC and a limited CPU-frequency max-state path now have source adaptations but remain unverified. This remains far from a complete device driver port.
 5. Confirm Surya's actual GPT and validate Renegade/root and Bergamota device operations against its partition and USB identities. Keep device changes temporary until the RAM-boot and driver paths are verified.
 
 Until those steps are complete, this is a source-level bring-up scaffold rather than a usable Surya port.

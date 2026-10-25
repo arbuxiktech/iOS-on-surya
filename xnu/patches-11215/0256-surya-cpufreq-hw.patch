@@ -1,0 +1,115 @@
+diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+--- a/bsd/dev/sweet_cpufreq.c
++++ b/bsd/dev/sweet_cpufreq.c
+@@ -1,13 +1,11 @@
+ /*
+- * Poco F1 (SDM845): run both CPU clusters at their top cpufreq-hw state.
+- * XNU has no cpufreq driver, so the cores otherwise stay where ABL left
+- * them, and everything (CoreAnimation renders on the CPU) runs slow.
+- * SDM845 "qcom,cpufreq-hw" (Linux qcom-cpufreq-hw.c, v1 register layout,
+- * as ios-topaz patch 0094 for SM6225): freq-domain0 (A55) 0x17d43000,
+- * freq-domain1 (A75) 0x17d45800; LUT at +0x110 (32-byte rows, bits 31:30
+- * clock source, 7:0 L-value x 19.2 MHz), PERF_STATE at +0x920.
+- * The firmware (OSM/LMh) still applies its voltage and thermal limits.
+- * Boot-arg sweetcpufreq=0 leaves the frequencies alone.
++ * Beryllium uses SDM845 cpufreq-hw; Surya uses SM7150 cpufreq-hw, which
++ * shares the generic QCOM v1 layout (LUT +0x110, 32-byte rows, PERF_STATE
++ * +0x920). Surya domain bases and OPPs come from the upstream SM7150 DTS.
++ * Beryllium retains its existing default-to-maximum behavior. Surya is off
++ * by default: sweetcpufreq=1 reads the LUTs without changing state; =2 writes
++ * the highest state present in the published CPU OPP tables. Firmware remains
++ * responsible for voltage selection and thermal limits.
+  */
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+ #include <sys/param.h>
+@@ -24,8 +22,22 @@
+ #define CPUFREQ_PERF_STATE      0x920u
+ #define CPUFREQ_LUT_MAX         40u
+ 
++static bool
++cpufreq_opp_allowed(uint32_t khz, const uint32_t *opps, unsigned nopp)
++{
++	if (opps == NULL) {
++		return true;
++	}
++	for (unsigned i = 0; i < nopp; i++) {
++		if (opps[i] == khz) {
++			return true;
++		}
++	}
++	return false;
++}
++
+ static void
+-cpufreq_domain_max(const char *name, vm_offset_t pa)
++cpufreq_domain_max(const char *name, vm_offset_t pa, const uint32_t *opps, unsigned nopp, bool write_state)
+ {
+ 	vm_offset_t b = ml_io_map(pa, 0x1400);
+ 	if (b == 0) {
+@@ -42,7 +54,7 @@
+ 		}
+ 		prevKHz = khz;
+ 		n++;
+-		if (khz > bestKHz) {
++		if (cpufreq_opp_allowed(khz, opps, nopp) && khz > bestKHz) {
+ 			bestKHz = khz;
+ 			best = i;
+ 		}
+@@ -50,23 +62,45 @@
+ 	uint32_t old = *(volatile uint32_t *)(b + CPUFREQ_PERF_STATE);
+-	uint32_t oldv = old < CPUFREQ_LUT_MAX ?
++	uint32_t oldv = old < n ?
+ 	    *(volatile uint32_t *)(b + CPUFREQ_FREQ_LUT + old * CPUFREQ_LUT_ROW) : 0;
+-	uint32_t oldKHz = ((oldv >> 30) & 3u) ? 19200u * (oldv & 0xffu) : 300000u;
+-	__asm__ volatile("dsb sy" ::: "memory");
+-	*(volatile uint32_t *)(b + CPUFREQ_PERF_STATE) = best;
+-	__asm__ volatile("dsb sy" ::: "memory");
+-	printf("SWEET CPUFREQ: %s: %u LUT states, perf state %u (%u MHz) -> %u (%u MHz)\n",
+-	    name, n, old, oldKHz / 1000, best, bestKHz / 1000);
++	uint32_t oldKHz = old < n ? (((oldv >> 30) & 3u) ? 19200u * (oldv & 0xffu) : 300000u) : 0;
++	if (bestKHz == 0) {
++		printf("SWEET CPUFREQ: %s: no listed OPP found in the hardware LUT\n", name);
++		return;
++	}
++	if (write_state) {
++		__asm__ volatile("dsb sy" ::: "memory");
++		*(volatile uint32_t *)(b + CPUFREQ_PERF_STATE) = best;
++		__asm__ volatile("dsb sy" ::: "memory");
++	}
++	printf("SWEET CPUFREQ: %s: %u LUT states, %s perf state %u (%u MHz) -> %u (%u MHz)\n",
++	    name, n, write_state ? "write" : "read-only", old, oldKHz / 1000, best, bestKHz / 1000);
+ }
+ 
+ void
+ sweet_cpufreq_max(void)
+ {
+-	int on = 1;
+-	PE_parse_boot_argn("sweetcpufreq", &on, sizeof(on));
+-	if (!on || !sweet_board_beryllium()) {
++	int mode = sweet_board_beryllium() ? 2 : 0;
++	if (PE_parse_boot_argn("sweetcpufreq", &mode, sizeof(mode))) {
++		if (sweet_board_beryllium()) {
++			mode = mode ? 2 : 0;
++		}
++	}
++	if (mode <= 0) {
+ 		return;
+ 	}
+-	cpufreq_domain_max("silver (A55)", 0x17d43000u);
+-	cpufreq_domain_max("gold (A75)", 0x17d45800u);
++	if (sweet_board_beryllium()) {
++		cpufreq_domain_max("silver (A55)", 0x17d43000u, NULL, 0, true);
++		cpufreq_domain_max("gold (A75)", 0x17d45800u, NULL, 0, true);
++	} else if (sweet_board_surya()) {
++		static const uint32_t silver_opps[] = { 300000, 576000, 768000, 1017600, 1248000,
++		    1324800, 1497600, 1612800, 1708800, 1804800 };
++		static const uint32_t gold_opps[] = { 300000, 652800, 806400, 979200, 1094400, 1209600,
++		    1324800, 1555200, 1708800, 1843200, 1939200, 2169600, 2208000, 2304000 };
++		bool write_state = mode >= 2;
++		cpufreq_domain_max("silver (A55)", 0x18323000u, silver_opps,
++		    sizeof(silver_opps) / sizeof(silver_opps[0]), write_state);
++		cpufreq_domain_max("gold (A76)", 0x18325800u, gold_opps,
++		    sizeof(gold_opps) / sizeof(gold_opps[0]), write_state);
++	}
+ }
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

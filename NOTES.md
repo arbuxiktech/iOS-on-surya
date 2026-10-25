@@ -1,9 +1,15 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya cpufreq-hw source adaptation (2026-10-25) <<<
+* Added XNU patch `0256-surya-cpufreq-hw.patch`: Surya's off-by-default path maps SM7150 freq-domain0/1 from upstream `sm7150.dtsi` (`0x18323000`, `0x18325800`) and reads the common QCOM v1 frequency LUT/performance-state layout. Its A55/A76 allowlists match the upstream `cpu0_opp_table` and `cpu6_opp_table` values.
+* `sweetcpufreq=1` is read-only on Surya; `sweetcpufreq=2` writes the highest LUT entry that exactly matches an upstream OPP. No voltage or thermal-control registers are written. Beryllium keeps its previous default behavior. Runtime frequency scaling is not implemented.
+* This mapping comes from upstream SoC DTS and the generic QCOM cpufreq-hw driver; the Surya iOS kernel has not been built or hardware-verified. No CPU register writes, device boot or flash were performed. `git apply --stat` parses the patch.
+
 ### >>> Surya PM6150 RTC and PS_HOLD source adaptations (2026-10-25) <<<
 * Added XNU patch `0255-surya-pm6150-rtc.patch`: enables the existing IORTC path for Surya and reads PM6150 SID 0 RTC registers (`0x6046` control, `0x6048` seconds) with a stored wall-clock offset in alarm data (`0x6140`/`0x6142`) only when alarm control `0x6146` is disabled. SPMI access is narrowly allowlisted; writes are limited to those two 16-bit offset chunks and the existing SPMI layer refuses writes unless the application processor owns the APID.
 * The live FDT identifies the PM6150 at SID 0 with `qcom,qpnp-rtc`, RTC block `0x6000` and alarm block `0x6100`. Upstream Linux's PM6150 DTS uses the `qcom,pm8941-rtc` layout; its RTC driver defines the matching control/read/alarm registers. This source adaptation has not been built or exercised; in particular, alarm ownership and PMIC write permissions remain hardware questions.
 * Corrected patch 0252's context so the Surya WLED patch applies after patch 0245's Beryllium RTC allowlist change in lexical patch order. Reconstructed the `sweet_spmi.c` patch chain in a scratch directory and confirmed it applies through 0255; `git apply --stat` parses the new patch. No XNU build, test, device boot or flash was performed.
+* Commit `08b0893` records the RTC adaptation and WLED patch-order correction.
 * Commit `8872ff8` records the separate PS_HOLD/IMEM reset adaptation: Surya uses live-FDT PS_HOLD `0x0c264000` and IMEM base `0x146aa000`; PM6150 PON reboot-reason writes remain disabled. Reset behavior is source-only and unverified.
 * Other drivers remain open; this is not a complete Surya port. See `docs/SURYA_PORT.md`.
 
