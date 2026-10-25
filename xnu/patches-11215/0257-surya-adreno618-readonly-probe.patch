@@ -1,25 +1,36 @@
 diff --git a/bsd/conf/files b/bsd/conf/files
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -122,2 +122,3 @@
+@@ -119,7 +119,8 @@
+ bsd/dev/sweet_smmu.c			standard
+ bsd/dev/sweet_fb.c			standard
+ bsd/dev/sweet_a630.c			standard
  bsd/dev/sweet_a630_pas.c			standard
 +bsd/dev/sweet_surya_gpu.c		standard
  bsd/dev/beryllium_wlan.c			standard
+ bsd/dev/beryllium_bt_hci.c		standard
+ bsd/dev/mem.c				standard
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -74,5 +74,6 @@
+@@ -74,7 +74,8 @@
  extern void sweet_usb_probe(void);
  extern void sweet_cpufreq_max(void);
  extern void sweet_charger_start(void);
  extern void sweet_a630_probe(void);
 +extern void sweet_surya_gpu_probe(void);
  
-@@ -1156,3 +1156,4 @@
+ #define REG_CAP         0x00
+ #define REG_IS          0x20
+@@ -1154,7 +1154,8 @@
+ 	sweet_reboot_init();	/* beryllium: PS_HOLD reset + reboot reason, SWEET REBOOT: */
+ 	sweet_touch_init();
  	sweet_usb_probe();
  	sweet_a630_probe();	/* sweetgpu=N, beryllium only, off by default */
 +	sweet_surya_gpu_probe();	/* Surya Adreno 618 read-only stage 1 */
  	beryllium_wlan_init();      /* boot-arg sweetwlan=N, off by default */
+ 	return 0;
+ }
 diff --git a/bsd/dev/sweet_surya_gpu.c b/bsd/dev/sweet_surya_gpu.c
 new file mode 100644
 --- /dev/null
