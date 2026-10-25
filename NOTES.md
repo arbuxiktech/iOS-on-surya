@@ -1,5 +1,10 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya upstream DTB references (2026-10-25) <<<
+* Fetched SM7150 mainline `v7.2` source at `fd78d17954a86ea6ceb0c535e618ea129e09f8dd`; compiled `sm7150-xiaomi-surya-huaxing.dts` and `...-tianma.dts` with `cpp` and `dtc` 1.7.0. Outputs are `dtb/surya/surya-huaxing.dtb` (96,426 bytes, SHA-256 `a43d069d0a49adcd3c6ba5e589940c91677c24f5a152d161ce1d1a5b6eb7a0dc`) and `dtb/surya/surya-tianma.dtb` (96,418 bytes, SHA-256 `c7c7462fb7b12e9a5e9c4820f8368b376dc5d0c3fde787c75e0cd54e39b7cbbb`). `dtc` parsed each generated blob and showed its expected Huaxing/Tianma model string. Upstream DTS warnings were emitted; no fatal compiler errors.
+* Artifacts are ignored by git. They are Linux mainline references, not stock Xiaomi boot DTBs. The phone's panel variant, ABL acceptance and live memory/board data remain unverified. No Enxerto image was built and nothing was booted or flashed. Use the phone's exact stock DTB for boot-image packaging.
+* `docs/SURYA_PORT.md` records source links, IDs and artifact hashes. Next: obtain the phone's stock boot image/live FDT and match its display panel before selecting any DTB for hardware use.
+
 ### >>> Surya source-level bring-up profile (2026-10-25) <<<
 * Commit `29d58bd5bee854bfda42d300c1505fcb8a3fd436` adds Surya (`surya`, Poco X3 NFC) profiles to Enxerto, `tools/mkadt.py`, XNU board detection/touch gating, and Bergamota's Build pane and file-based builder; details and commands are in `docs/SURYA_PORT.md`.
 * Upstream basis: SM7150 Xiaomi DTS v7.2 (1080x2400 framebuffer at `0x9c000000`, separate ramoops at `0x9d800000`, PM6150/PM6150L, Novatek `nt36xxx` SPI touch) and AOSP Android 10 boot header v2. The generated low memory range `0xb0000000..0xfd000000`, Enxerto offsets and OS patch-level field are assumptions pending the stock boot image/live FDT.

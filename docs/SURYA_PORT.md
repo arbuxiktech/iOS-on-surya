@@ -14,6 +14,21 @@ The SM7150 mainline tree describes Surya and its shared components in [`sm7150-x
 - The shared device tree uses PM6150 and PM6150L PMICs. Surya enables a Novatek `nt36xxx` touchscreen over SPI; the exact panel/controller variant should be checked against the phone's live tree.
 - Surya has Huaxing and Tianma display panel variants in the upstream device-tree set. The stock device tree for the user's phone must be retained in the Android boot image.
 
+## Upstream DTB references
+
+The Xiaomi `surya-q-oss` kernel branch does not provide a phone-specific Surya DTB, so I fetched and compiled the Surya device-tree sources from the SM7150 mainline tree. The panel-specific source files are [`sm7150-xiaomi-surya-huaxing.dts`](https://github.com/sm7150-mainline/linux/blob/v7.2/arch/arm64/boot/dts/qcom/sm7150-xiaomi-surya-huaxing.dts) and [`sm7150-xiaomi-surya-tianma.dts`](https://github.com/sm7150-mainline/linux/blob/v7.2/arch/arm64/boot/dts/qcom/sm7150-xiaomi-surya-tianma.dts).
+
+The resulting files are in the ignored `dtb/surya/` directory:
+
+| File | Model string | Size | SHA-256 |
+| --- | --- | ---: | --- |
+| `surya-huaxing.dtb` | Xiaomi POCO X3 NFC (Huaxing) | 96,426 bytes | `a43d069d0a49adcd3c6ba5e589940c91677c24f5a152d161ce1d1a5b6eb7a0dc` |
+| `surya-tianma.dtb` | Xiaomi POCO X3 NFC (Tianma) | 96,418 bytes | `c7c7462fb7b12e9a5e9c4820f8368b376dc5d0c3fde787c75e0cd54e39b7cbbb` |
+
+Both were compiled from Linux `v7.2`, commit `fd78d17954a86ea6ceb0c535e618ea129e09f8dd`, with `cpp` and `dtc` 1.7.0. Their root properties identify SM7150 (`qcom,msm-id = <0x16d 0>`) and board 34 (`qcom,board-id = <0x22 0>`). `dtc` emitted warnings from the upstream shared DTS about duplicate unit addresses and unnecessary address/size cells; it produced both blobs successfully.
+
+These are mainline Linux source-derived reference DTBs, **not extracted Xiaomi stock DTBs**. The user's panel variant is unknown, and neither blob has been checked against the phone's ABL, boot image or live FDT. Keep them for source comparison; use the matching stock DTB from the device for an Enxerto boot image. The generated blobs and cloned source are ignored by git.
+
 Android 10 launch devices use boot image header version 2, which is the format the Surya Enxerto profile emits. Its OS version and patch-level fields are launch-era placeholders until the stock image is read. See the [AOSP boot image header reference](https://source.android.com/docs/core/architecture/bootloader/boot-image-header).
 
 ## What this change covers
@@ -46,7 +61,7 @@ cd enxerto
 BOARD=surya DTB=../dtb/surya/dtb ./build.sh
 ```
 
-The generated `enxerto-boot.img` is a bring-up artifact. Only RAM-boot it from ABL fastboot with `fastboot boot`; do not flash it to `boot`. No Surya device has been attached or booted in this task, and the app warns about this status. The separate `bergamota-fastboot.img` is built for development, but its partition access has not been checked on Surya either.
+The command above expects the phone's extracted stock DTB at `dtb/surya/dtb`; the two mainline reference DTBs above are not substitutes for it. The generated `enxerto-boot.img` is a bring-up artifact. Only RAM-boot it from ABL fastboot with `fastboot boot`; do not flash it to `boot`. No Surya device has been attached or booted in this task, and the app warns about this status. The separate `bergamota-fastboot.img` is built for development, but its partition access has not been checked on Surya either.
 
 ## Work still needed
 
