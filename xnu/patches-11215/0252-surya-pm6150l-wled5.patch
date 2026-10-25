@@ -1,0 +1,218 @@
+diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
+--- a/bsd/dev/sweet_spmi.c
++++ b/bsd/dev/sweet_spmi.c
+@@ -162,7 +162,9 @@ sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ 		    (sid == 3 && (peripheral == 0xd8 || peripheral == 0xd9)) ||
+ 		    (sid == 0 && peripheral == 0x08);
+ 	} else {
+-		allowed = sid == 0 && (peripheral == 0x10 || peripheral == 0x11 ||
+-		    peripheral == 0x12 || peripheral == 0x13 || peripheral == 0x48);
++		/* Surya's PM6150L is SID 5; expose only the WLED ctrl/sink blocks. */
++		allowed = (sid == 0 && (peripheral == 0x10 || peripheral == 0x11 ||
++		    peripheral == 0x12 || peripheral == 0x13 || peripheral == 0x48)) ||
++		    (sweet_board_surya() && sid == 5 && (peripheral == 0xd8 || peripheral == 0xd9));
+ 	}
+ 	if (!sp_ready || !out || addr > 0xffffu || !allowed) {
+@@ -213,5 +215,18 @@ sp_write_allowed(unsigned sid, unsigned addr, unsigned len)
+ {
++	if (len < 1 || len > 2) {
++		return false;
++	}
++	if (sweet_board_surya()) {
++		if (sid != 5) {
++			return false;
++		}
++		/* PM6150L WLED5 only: active module brightness, its latch, and global enable. */
++		if ((addr == 0xd953u || addr == 0xd963u) && len == 2) {
++			return true;
++		}
++		return len == 1 && (addr == 0xd846u || addr == 0xd965u);
++	}
+ 	if (!sweet_board_beryllium() || len < 1 || len > 2) {
+ 		return false;
+ 	}
+ 	if (sid == 2) {
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -44,3 +44,4 @@
+ #include "../../../bsd/dev/sweet_board.h"
+ #include "../../../bsd/dev/sweet_spmi.h"
++static uint16_t sweet_wled5_max, sweet_wled5_floor;
+ extern "C" int sweet_smmu_probe_sid(unsigned sid, unsigned level);
+@@ -999,10 +1000,16 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		/* 0243: iOS's brightness, on both WLED strings (the floor keeps the panel readable: 0 is iOS's "off", which is
+ 		 * RequestPowerChange's job) */
+ 		uint32_t lvl = req & 0xfffu;
+-		if (lvl < 16) {
+-			lvl = 16;
+-		}
++		if (sweet_board_surya()) {
++			uint64_t scaled = ((uint64_t)lvl * sweet_wled5_max + 2047u) / 4095u;
++			lvl = (uint32_t)scaled;
++			if (lvl < sweet_wled5_floor) {
++				lvl = sweet_wled5_floor;
++			}
++		} else if (lvl < 16) {
++			lvl = 16;
++		}
+ 		fb->fBlRaw[0] = (uint16_t)lvl;
+ 		fb->fBlRaw[1] = (uint16_t)lvl;
+ 		if (fb->blSet(true)) {
+ 			fb->fBlReqApplied = req;
+@@ -1108,6 +1115,67 @@ sweet_wled_read16(unsigned string, uint16_t *out)
+ 	return 0;
+ }
+ 
++/* PM6150L WLED5 (Surya), matched to the live FDT's SID 5 / d800+d900 blocks. */
++#define SWEET_WLED5_CTRL_EN       0xd846u
++#define SWEET_WLED5_MOD_A_EN      0xd950u
++#define SWEET_WLED5_MOD_B_EN      0xd960u
++#define SWEET_WLED5_MOD_A_WIDTH   0xd952u
++#define SWEET_WLED5_MOD_B_WIDTH   0xd962u
++#define SWEET_WLED5_MOD_A_BRIGHT  0xd953u
++#define SWEET_WLED5_MOD_B_BRIGHT  0xd963u
++#define SWEET_WLED5_SYNC          0xd965u
++#define SWEET_WLED5_ENABLE_MASK   0x80u
++#define SWEET_WLED5_SYNC_A        0x01u
++#define SWEET_WLED5_SYNC_B        0x02u
++
++static unsigned sweet_wled5_module = 2; /* 0 = A, 1 = B; 2 = not identified */
++static unsigned sweet_wled5_brightness_addr;
++
++static int
++sweet_wled5_read16(uint16_t *out)
++{
++	uint8_t lo, hi;
++	if (sweet_wled5_module > 1 || out == NULL ||
++	    sweet_spmi_read(5, sweet_wled5_brightness_addr, &lo) != 0 ||
++	    sweet_spmi_read(5, sweet_wled5_brightness_addr + 1, &hi) != 0) {
++		return -1;
++	}
++	*out = (uint16_t)(lo | ((uint16_t)hi << 8));
++	return 0;
++}
++
++static int
++sweet_wled5_sync(void)
++{
++	uint8_t clear = 0;
++	uint8_t set = sweet_wled5_module == 0 ? SWEET_WLED5_SYNC_A : SWEET_WLED5_SYNC_B;
++	uint8_t old;
++	if (sweet_spmi_read(5, SWEET_WLED5_SYNC, &old) != 0) {
++		return -1;
++	}
++	clear = (uint8_t)(old & ~0x03u);
++	set = (uint8_t)(clear | (sweet_wled5_module == 0 ? SWEET_WLED5_SYNC_A : SWEET_WLED5_SYNC_B));
++	return sweet_spmi_write(5, SWEET_WLED5_SYNC, &clear, 1) == 0 &&
++	    sweet_spmi_write(5, SWEET_WLED5_SYNC, &set, 1) == 0 ? 0 : -1;
++}
++
++/* Preserve all control bits except the WLED module enable bit (PM6150L WLED5). */
++static int
++sweet_wled5_set_enabled(bool enabled)
++{
++	uint8_t old, want, got;
++	if (sweet_spmi_read(5, SWEET_WLED5_CTRL_EN, &old) != 0) {
++		return -1;
++	}
++	want = (uint8_t)((old & (uint8_t)~SWEET_WLED5_ENABLE_MASK) |
++	    (enabled ? SWEET_WLED5_ENABLE_MASK : 0));
++	if (want != old && sweet_spmi_write(5, SWEET_WLED5_CTRL_EN, &want, 1) != 0) {
++		return -1;
++	}
++	return sweet_spmi_read(5, SWEET_WLED5_CTRL_EN, &got) == 0 &&
++	    ((got ^ want) & SWEET_WLED5_ENABLE_MASK) == 0 ? 0 : -1;
++}
++
+ void
+ AppleCLCD::blInit(void)
+ {
+@@ -1124,7 +1192,43 @@ AppleCLCD::blInit(void)
+ 	if (sweet_spmi_init() != 0) {
+ 		IOLog("SWEET FB: backlight fade: SPMI not available; pixel fallback\n");
+ 		return;
+ 	}
++	if (sweet_board_surya()) {
++		uint8_t ctrl, mod_a, mod_b, width;
++		uint16_t raw;
++		if (sweet_spmi_read(5, SWEET_WLED5_CTRL_EN, &ctrl) != 0 ||
++		    sweet_spmi_read(5, SWEET_WLED5_MOD_A_EN, &mod_a) != 0 ||
++		    sweet_spmi_read(5, SWEET_WLED5_MOD_B_EN, &mod_b) != 0 ||
++		    ((mod_a & SWEET_WLED5_ENABLE_MASK) != 0) ==
++		    ((mod_b & SWEET_WLED5_ENABLE_MASK) != 0)) {
++			IOLog("SWEET FB: Surya WLED5 module state is ambiguous; pixel fallback\n");
++			return;
++		}
++		sweet_wled5_module = (mod_a & SWEET_WLED5_ENABLE_MASK) ? 0 : 1;
++		sweet_wled5_brightness_addr = sweet_wled5_module == 0 ?
++		    SWEET_WLED5_MOD_A_BRIGHT : SWEET_WLED5_MOD_B_BRIGHT;
++		if (sweet_spmi_read(5, sweet_wled5_module == 0 ? SWEET_WLED5_MOD_A_WIDTH : SWEET_WLED5_MOD_B_WIDTH,
++		    &width) != 0) {
++			IOLog("SWEET FB: Surya WLED5 width unreadable; pixel fallback\n");
++			return;
++		}
++		sweet_wled5_max = (width & 1u) ? 0x7fffu : 0x0fffu;
++		sweet_wled5_floor = sweet_wled5_max / 1000u;
++		if (sweet_wled5_floor == 0) {
++			sweet_wled5_floor = 1;
++		}
++		if (!(ctrl & SWEET_WLED5_ENABLE_MASK) || sweet_wled5_read16(&raw) != 0 ||
++		    raw == 0xffffu || !(raw & sweet_wled5_max)) {
++			IOLog("SWEET FB: Surya WLED5 is not active; pixel fallback\n");
++			return;
++		}
++		fBlRaw[0] = fBlRaw[1] = (uint16_t)(raw & sweet_wled5_max);
++		fBlPos = SWEET_FB_BL_STEPS;
++		fBlOK = true;
++		IOLog("SWEET FB: Surya PM6150L WLED5 module %c, width %u, brightness 0x%04x; backlight control armed\n",
++		    sweet_wled5_module == 0 ? 'A' : 'B', (width & 1u) ? 15u : 12u, fBlRaw[0]);
++		return;
++	}
+ 	for (unsigned n = 0; n < SWEET_WLED_STRINGS; n++) {
+ 		if (sweet_wled_read16(n, &raw[n]) != 0) {
+ 			IOLog("SWEET FB: backlight fade: cannot read WLED string %u brightness; pixel fallback\n", n);
+@@ -2470,4 +2574,43 @@ AppleCLCD::blSet(bool on)
+ {
++	if (sweet_board_surya()) {
++		if (sweet_wled5_module > 1 || sweet_wled5_max == 0) {
++			return false;
++		}
++		if (!on) {
++			uint8_t ctrl;
++			uint16_t now;
++			if (sweet_spmi_read(5, SWEET_WLED5_CTRL_EN, &ctrl) == 0 &&
++			    (ctrl & SWEET_WLED5_ENABLE_MASK) && sweet_wled5_read16(&now) == 0 &&
++			    now != 0xffffu && (now & sweet_wled5_max)) {
++				fBlRaw[0] = fBlRaw[1] = (uint16_t)(now & sweet_wled5_max);
++			}
++		}
++		for (int attempt = 0; attempt < 3; attempt++) {
++			bool ok;
++			uint16_t want = fBlRaw[0] & sweet_wled5_max;
++			if (on) {
++				if (want < sweet_wled5_floor) {
++					want = sweet_wled5_floor;
++				}
++				uint8_t data[2] = { (uint8_t)want, (uint8_t)(want >> 8) };
++				uint16_t got = 0xffffu;
++				ok = sweet_spmi_write(5, sweet_wled5_brightness_addr, data, 2) == 0 &&
++				    sweet_wled5_sync() == 0 && sweet_wled5_set_enabled(true) == 0 &&
++				    sweet_wled5_read16(&got) == 0 && got == want;
++			} else {
++				ok = sweet_wled5_set_enabled(false) == 0;
++			}
++			if (ok) {
++				fBlPos = on ? SWEET_FB_BL_STEPS : 0;
++				IOLog("SWEET FB: Surya WLED5 backlight %s at 0x%04x%s\n", on ? "on" : "off", want,
++				    attempt ? " after a retry" : "");
++				return true;
++			}
++			IODelay(200);
++		}
++		IOLog("SWEET FB: Surya WLED5 backlight %s failed after 3 tries\n", on ? "on" : "off");
++		return false;
++	}
+ 	if (!on) {
+ 		uint16_t now[SWEET_WLED_STRINGS];
+ 		if (sweet_wled_read16(0, &now[0]) == 0 && sweet_wled_read16(1, &now[1]) == 0 &&

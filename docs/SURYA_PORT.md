@@ -2,7 +2,7 @@
 
 Surya is the Poco X3 NFC (`surya`, Qualcomm SM7150-AC / Snapdragon 732G). The working iOS port in this repository targets the Poco F1 (`beryllium`, SDM845). The repo now contains source-level Surya build and bring-up plumbing, but it does **not** produce a verified Surya iOS boot.
 
-The repo now has Surya board selection in Enxerto, the Apple Device Tree generator, the XNU bring-up patches, Renegade's full-root boot helper, and Bergamota's builder and file-based build API. This remains a source-level port scaffold: it has not been built or booted on a Poco X3 NFC. The user-provided EEA V14.0.5.0.SJGEUXM ROM and a recovery-captured live FDT have been inspected. The live tree confirms the active DTBO index, Tianma panel, touchscreen configuration and physical memory banks; ABL acceptance and iOS hardware bring-up remain unverified.
+The repo now has Surya board selection in Enxerto, the Apple Device Tree generator, XNU bring-up patches, Renegade's full-root boot helper, and Bergamota's builder and file-based build API. This remains a source-level port scaffold: it has not been built or booted on a Poco X3 NFC. The user-provided EEA V14.0.5.0.SJGEUXM ROM and a recovery-captured live FDT have been inspected. The live tree confirms the active DTBO index, Tianma panel, touchscreen configuration and physical memory banks; ABL acceptance and iOS hardware bring-up remain unverified.
 
 ## Upstream hardware facts used
 
@@ -11,9 +11,9 @@ The SM7150 mainline tree describes Surya and its shared components in [`sm7150-x
 - The framebuffer starts at `0x9c000000` and is 1080×2400; the shared DTS reserves exactly `1080 × 2400 × 4` bytes for it. A separate ramoops region starts at `0x9d800000`.
 - The SoC uses the SM7150 family map already used by the legacy `sweet` profile, including the GIC, UFS host and 19.2 MHz timer.
 - Surya uses six Kryo 470 Silver/A55 cores and two Kryo 470 Gold/A76 cores.
-- The shared device tree uses PM6150 and PM6150L PMICs. The captured runtime tree identifies a Novatek `NVT-ts-spi` touchscreen on SPI CS0 at 8 MHz, with reset GPIO 8 and IRQ GPIO 9; its XNU driver is not ported.
+- The shared device tree uses PM6150 and PM6150L PMICs. The captured runtime tree identifies a Novatek `NVT-ts-spi` touchscreen on SPI CS0 at 8 MHz, with reset GPIO 8 and IRQ GPIO 9; its SPI transport and firmware loader are not ported.
 - Surya has Huaxing and Tianma display panel variants in the upstream device-tree set. This phone's live tree identifies the Tianma NT36672C video panel. Use the extracted Xiaomi base DTB with the stock DTBO selection; the merged recovery FDT is for inspection and should not be substituted as the boot-image base.
-- The live tree exposes a `qcom,pm6150l-spmi-wled` block on PMIC SID 5 (`0xd800` control, `0xd900` sink). This is WLED5: the mainline driver uses module A/B brightness and sync registers, unlike the PMI8998 WLED4 string registers used by the Poco F1 fade path. The Surya WLED5 backend is not ported; the existing F1-only fade now defaults off for Surya. See the pinned [SM7150 mainline WLED driver](https://github.com/sm7150-mainline/linux/blob/v7.2/drivers/video/backlight/qcom-wled.c).
+- The live tree exposes a `qcom,pm6150l-spmi-wled` block on PMIC SID 5 (`0xd800` control, `0xd900` sink). This is WLED5: patch 0252 adds a Surya-only module A/B brightness, width and sync backend to the existing XNU backlight path. It is opt-in through the existing backlight boot flag and is not built or hardware-verified. The existing F1-only PMI8998 WLED4 path remains Beryllium-specific. The WLED5 register definitions and update order follow the pinned [SM7150 mainline WLED driver](https://github.com/sm7150-mainline/linux/blob/v7.2/drivers/video/backlight/qcom-wled.c).
 
 ## Upstream DTB references
 
@@ -51,10 +51,31 @@ The community [Surya Android device configuration](https://github.com/koz-nik/an
 - Enxerto's early charger writes and off-mode charging screen are disabled for Surya. The existing screen and charger code targets the Poco F1 PMI8998 register map.
 - `tools/mkadt.py --board surya` emits an iOS ADT with Surya and SM7150 identity, the current SweetPlatformExpert compatibility alias, six little cores and two big cores. Its default memory window is the live-FDT-confirmed upper bank, `0x100000000:0xfcc00000`, leaving fixed low-bank carve-outs outside XNU's allocator. `--highmem` selects that upper bank explicitly; `--memory BASE:SIZE` accepts a 16 KiB-aligned contiguous override. Managing both discontiguous banks would require additional ADT work.
 - XNU patch 0251 recognizes Surya and skips the older I2C touchscreen probe. The Surya Novatek `nt36xxx` SPI driver is not ported yet.
+- XNU patch 0252 adds a Surya-only PM6150L WLED5 brightness backend. It detects the active WLED module and width, preserves unrelated register bits, and remains opt-in. This is a source port only; the kernel series has not been built and the backlight has not been exercised on the phone.
 - XNU's existing read-only PM6150L GPIO2 volume-up and PM6150 PON key path stays enabled. The existing PM6150 voltage-derived battery estimate is also enabled read-only; it is not calibrated for Surya and Enxerto charger writes/off-mode charging remain disabled.
 - Bergamota's Build pane and file-based build request accept a target board and a stock/Huaxing/Tianma DTB choice. The Surya preset starts with one CPU, leaves the kernel console visible, enables the inherited SM7150 USB path for logs/control and the existing volume-key/read-only battery paths, and disables unported touch, GPU and radio paths.
 
 The `sweet` compatibility alias is needed so the existing SM7150 kernel platform code can identify the custom `sweet-io` node. It does not make the Redmi Note 10 Pro's peripheral configuration valid for Surya. The inherited SM7150 USB, volume-key and read-only PM6150 battery paths are still unverified on Surya.
+
+## Driver port status
+
+“Ported” here means source was adapted to Surya's board data; no Surya kernel build or iOS hardware boot has been done. Shared SoC code is not considered hardware-verified just because the phone also uses SM7150.
+
+| Subsystem | Surya source status | Remaining work |
+| --- | --- | --- |
+| Boot, ADT, memory and Enxerto profile | Board-specific source plumbing exists | Build and RAM-boot with stock DTBO entry 16; verify ABL handoff and the XNU memory window |
+| Framebuffer / Tianma panel | Existing ABL framebuffer handoff and 1080×2400 canvas are reused | Verify framebuffer ownership and iOS display geometry on Surya; no panel initialization driver has been brought up |
+| PM6150L WLED5 backlight | Source backend added in XNU patch 0252; opt-in only | Build and verify SID 5 reads/writes and brightness on hardware |
+| Novatek NT36672C touch | Legacy I²C probe is skipped by patch 0251 | Port QUP GENI SPI FIFO transport, reset/IRQ handling, the NVT SPI protocol and the vendor firmware loader; keep the firmware binary out of Git |
+| UFS storage | Existing SM7150/Sweet UFS implementation is reused | Confirm controller state, DMA addressability and root-partition mapping on Surya |
+| USB | Existing SM7150 DWC3 path is reused by the Surya preset | Confirm PHY, SMMU and fastboot/ADB behavior on the phone |
+| Keys and battery | Existing PM6150/PON read paths are reused read-only | Confirm actual key GPIO/PON wiring and calibrate the voltage-based battery estimate |
+| Charger / off-mode charging | Disabled for Surya | Map Surya's PM6150L/SMB5 registers and safety behavior before enabling any write |
+| GPU | Existing Adreno 630 driver is Beryllium-only | Port and validate the Adreno 618 GMU, power, firmware, SMMU and command submission paths |
+| Wi-Fi / Bluetooth | Existing WCN3990 bring-up is Beryllium-gated; Surya radio support is disabled | Identify the Surya radio configuration and port its power, firmware, transport and iOS interfaces |
+| Modem, audio, cameras, sensors and NFC | Not ported | Identify each live-FDT device and implement its bus, power, firmware and userland interfaces |
+| RTC, reboot and CPU frequency | Existing device-specific paths are Beryllium-gated | Map Surya PMIC/clock/CPU control and add board-specific implementations |
+| Renegade and Bergamota | Board selection and build plumbing exist | Validate Surya GPT/partition and USB identities, then exercise each operation on the device |
 
 ## Collecting device-specific input
 
@@ -92,10 +113,10 @@ The command above expects the extracted stock base DTB at `dtb/surya/dtb`; the m
 
 ## Work still needed
 
-1. Build Enxerto and its Surya ADT; RAM-boot with the stock DTBO still present and confirm ABL passes the merged IDP/Tianma/touch tree. No iOS boot has been attempted yet.
-2. Bring up XNU's Tianma display path and implement the PM6150L WLED5 backend; verify framebuffer handoff and brightness control. Add Huaxing support if needed for other Surya units.
-3. Port the Novatek SPI touchscreen using the captured CS0/8 MHz/GPIO8 reset/GPIO9 IRQ configuration. Verify the inherited PM6150L GPIO2/PM6150 PON key path and read-only battery estimate on hardware; keep charger writes off until mapped against Surya's own device tree.
-4. Bring up the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors and NFC; these are not covered by the Poco F1 drivers.
+1. Build Enxerto and its Surya ADT; RAM-boot with stock DTBO entry 16 and confirm ABL passes the merged IDP/Tianma/touch tree. No iOS boot has been attempted yet.
+2. Verify the WLED5 backend and framebuffer handoff on the live panel, then complete the Novatek SPI transport and firmware loader using CS0/8 MHz/GPIO8 reset/GPIO9 IRQ.
+3. Verify UFS, USB, PM6150/PON keys and the read-only battery estimate. Keep charger writes off until their registers and safety behavior are mapped for Surya.
+4. Port the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors, NFC, RTC, reboot and CPU-frequency drivers; these paths are currently missing or Beryllium-gated.
 5. Confirm Surya's actual GPT and validate Renegade/root and Bergamota device operations against its partition and USB identities. Keep device changes temporary until the RAM-boot and driver paths are verified.
 
 Until those steps are complete, this is a source-level bring-up scaffold rather than a usable Surya port.
