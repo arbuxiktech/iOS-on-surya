@@ -65,7 +65,7 @@ python3 tools/extract-dtb.py "$ROM/boot.img" dtb/surya
 python3 tools/extract-dtbo.py "$ROM/dtbo.img" dtb/surya/stock-dtbo
 ~~~
 
-To try the live FDT from stock Android, write it under Android's temporary-data directory, then pull it to the host:
+The stock-shell FDT read was attempted below; Android denied access to the source file:
 
 ~~~sh
 adb shell "cat /sys/firmware/fdt > /data/local/tmp/surya-live.dtb"
@@ -73,7 +73,7 @@ adb pull /data/local/tmp/surya-live.dtb backup/surya-live.dtb
 adb shell getprop ro.boot.dtbo_idx
 ~~~
 
-A non-rooted stock shell may be denied access to `/sys/firmware/fdt`; this phone also denies `/proc/cmdline`. If the FDT read fails, use a trusted recovery shell, where root can copy it to `/tmp/surya-live.dtb` before pulling it. `/tmp` is not present on this stock Android shell. Check the live tree's model, SoC and board IDs, memory nodes, reserved-memory regions, panel and touchscreen before selecting a DTB for Enxerto. `extract-dtb.py --live` can compare live IDs with boot candidates; this ROM's generic SDMMAGPIE base ID may not match a post-overlay live tree, so review an unmatched result rather than forcing a selection.
+This phone's non-rooted stock shell denied access to `/sys/firmware/fdt`; it created a zero-byte file under `/data/local/tmp`, so the pulled file is not a valid FDT. The shell also denies `/proc/cmdline`. Capture the FDT from a trusted recovery shell, where root can write it to `/tmp/surya-live.dtb`, then pull it and verify it is non-empty. `/tmp` is not present on this stock Android shell. Check the live tree's model, SoC and board IDs, memory nodes, reserved-memory regions, panel and touchscreen before selecting a DTB for Enxerto. `extract-dtb.py --live` can compare live IDs with boot candidates; this ROM's generic SDMMAGPIE base ID may not match a post-overlay live tree, so review an unmatched result rather than forcing a selection.
 
 ## Building the groundwork images
 

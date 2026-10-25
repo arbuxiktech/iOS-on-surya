@@ -6,8 +6,8 @@
 * User reports `ro.boot.dtbo_idx=16`, `ro.product.board=surya`, and `ro.board.platform=sm6150`; this confirms DTBO entry 16 is selected. It is IDP/SDMMAGPIE (`msm-id <0x16d 0>`, board ID `<0x22 0>`), matching the upstream Surya board ID, and includes both Huaxing/Tianma NT36672C panels and a `novatek,NVT-ts-spi` node. The active panel is still unknown; the overlay root identifies as generic IDP.
 * Added `tools/extract-dtbo.py`; all 32 extracted overlays are under ignored `dtb/surya/stock-dtbo/`, with boot candidates under ignored `dtb/surya/`. No ROM or extracted blobs are committed.
 * Commit `d13fe16` records the extractor, stock-ROM findings, and the corrected Enxerto boot-header OS metadata. `git diff --cached --check` was clean; no build or test suite was run.
-* Runtime FDT, memory map and actual panel remain unverified. Stock shell has no `su` and denies `/proc/cmdline`; `/tmp` does not exist there. Try `/data/local/tmp` for the FDT output or use trusted recovery. No XNU/app build, hardware boot or flash was run.
-* Next: capture `/sys/firmware/fdt` from trusted recovery or if readable from stock Android using `/data/local/tmp`; inspect the merged tree, memory map and panel. `dtbo_idx=16` is already confirmed.
+* Runtime FDT, memory map and actual panel remain unverified. Stock shell has no `su`, denies `/proc/cmdline` and `/sys/firmware/fdt`, and `/tmp` does not exist there. `/data/local/tmp` was writable, but the attempted capture was zero bytes. Use trusted recovery for the live FDT. No XNU/app build, hardware boot or flash was run.
+* Next: capture `/sys/firmware/fdt` from trusted recovery; inspect the merged tree, memory map and panel. `dtbo_idx=16` is already confirmed.
 
 ### >>> Surya repository-wide source integration (2026-10-25) <<<
 * Current Surya foundation is commit `29d58bd5bee854bfda42d300c1505fcb8a3fd436`; follow-up commit `ad05159` (`Integrate Surya source bring-up across build tools`) extends Enxerto/DTB selection, `mkadt.py --memory`, the legacy XNU 8796 board gate (matching the existing 11215 Surya touch gate), Renegade's full-root boot helper and Bergamota's UI/API.
