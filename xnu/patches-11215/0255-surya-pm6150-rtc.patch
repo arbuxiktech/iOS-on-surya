@@ -40,7 +40,7 @@ diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPl
  	IOLog("SWEET: platform expert registered\n");
 -	if (sweet_board_beryllium()) {
 +	if (sweet_board_beryllium() || sweet_board_surya()) {
- 		publishResource("IORTC");
+ 		publishResource("IORTC");       /* 0245: the PM8998 RTC below; IOKitInitializeTime waits up to 30 s for it */
  	}
 @@ -72,3 +72,3 @@ SweetPlatformExpert::getGMTTimeOfDay(void)
  {

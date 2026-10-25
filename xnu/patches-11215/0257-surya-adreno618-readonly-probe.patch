@@ -1,25 +1,17 @@
 diff --git a/bsd/conf/files b/bsd/conf/files
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -114,8 +114,9 @@ bsd/dev/sweet_spmi.c			standard
- bsd/dev/sweet_usb.c			standard
- bsd/dev/sweet_cpufreq.c			standard
- bsd/dev/sweet_smmu.c			standard
- bsd/dev/sweet_a630.c			standard
- bsd/dev/sweet_a630_pas.c			standard
+@@ -122,0 +123,1 @@
 +bsd/dev/sweet_surya_gpu.c		standard
- bsd/dev/mem.c				standard
- bsd/dev/munge.c 			optional config_requires_u32_munging
- bsd/dev/unix_startup.c			standard
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -59,3 +59,4 @@ extern void sweet_usb_probe(void);
+@@ -74,4 +74,5 @@ extern void sweet_usb_probe(void);
  extern void sweet_cpufreq_max(void);
  extern void sweet_charger_start(void);
  extern void sweet_a630_probe(void);
 +extern void sweet_surya_gpu_probe(void);
-@@ -850,2 +850,3 @@ sweet_ufs_init(void)
+@@ -1156,2 +1156,3 @@ sweet_usb_probe();
  	sweet_usb_probe();
  	sweet_a630_probe();	/* sweetgpu=N, beryllium only, off by default */
 +	sweet_surya_gpu_probe();	/* Surya Adreno 618 read-only stage 1 */

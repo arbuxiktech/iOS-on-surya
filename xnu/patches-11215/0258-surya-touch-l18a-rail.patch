@@ -1,7 +1,7 @@
 diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
 --- a/bsd/dev/sweet_rpmh.c
 +++ b/bsd/dev/sweet_rpmh.c
-@@ -1,20 +1,28 @@
+@@ -376,20 +376,28 @@
  int
  sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable)
  {
