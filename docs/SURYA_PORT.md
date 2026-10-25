@@ -74,13 +74,19 @@ The `sweet` compatibility alias is needed so the existing SM7150 kernel platform
 | USB | Existing SM7150 DWC3 path is reused by the Surya preset | Confirm PHY, SMMU and fastboot/ADB behavior on the phone |
 | Keys and battery | Existing PM6150/PON read paths are reused read-only | Confirm actual key GPIO/PON wiring and calibrate the voltage-based battery estimate |
 | Charger / off-mode charging | Disabled for Surya | Map Surya's PM6150L/SMB5 registers and safety behavior before enabling any write |
-| GPU | Existing Adreno 630 driver is Beryllium-only | Port and validate the Adreno 618 GMU, power, firmware, SMMU and command submission paths |
+| GPU | Patch 0257 adds a Surya-only, read-only Adreno 618 state probe (`sweetgpu=1`); higher stages are refused before MMIO | Build and inspect the ABL state log, then separately port and validate GMU startup, RPMh/PDC, HFI, GX, the Surya ZAP firmware/PAS path, SMMU and command submission |
 | Wi-Fi / Bluetooth | Existing WCN3990 bring-up is Beryllium-gated; Surya radio support is disabled | Identify the Surya radio configuration and port its power, firmware, transport and iOS interfaces |
 | Modem, audio, cameras, sensors and NFC | Not ported | Identify each live-FDT device and implement its bus, power, firmware and userland interfaces |
 | Reboot / reset | Patch 0254 maps Surya PS_HOLD (`0x0c264000`) and IMEM (`0x146aa000`, `restart_reason@0x65c`) from the live FDT; Surya skips Beryllium PM8998 PON writes | Compile and verify normal reset and bootloader/recovery/Bergamota reasons on hardware; map PM6150 PON restart-reason handling before enabling writes |
 | RTC / wall clock | Patch 0255 adapts the PM6150 SID 0 RTC/alarm path and only stores its wall-clock offset while the alarm is disabled | Confirm AP read/write ownership, persisted time and alarm behavior on hardware; no build or RTC test has been done |
 | CPU frequency | Patch 0256 adds an off-by-default SM7150 cpufreq-hw probe and opt-in max OPP selection, with exact upstream A55/A76 OPP allowlists | Build; inspect both LUTs with `sweetcpufreq=1`, then separately validate `sweetcpufreq=2` and thermal behavior; runtime scaling is not implemented |
 | Renegade and Bergamota | Board selection and build plumbing exist | Validate Surya GPT/partition and USB identities, then exercise each operation on the device |
+
+### GPU probe scope
+
+The live tree and the pinned SM7150 DTS identify the Surya GPU as `qcom,adreno-618.0`, with GPU core `0x05000000`, GMU `0x0506a000`, GPUCC `0x05090000`, and Adreno SMMU `0x05040000`. Patch 0257 adds only a read-only `sweetgpu=1` report. It checks GCC/GPUCC clock and power status before accessing GMU or GPU-core registers; it does not map or read SMMU state and does not write GPU, GMU, clock, power, or memory registers. Any `sweetgpu` value above 1 returns without MMIO.
+
+The Beryllium Adreno 630 stages remain board-gated. Surya's GMU/PDC offsets, DDRSS GPU AXI clock, HFI chip ID and votes, and signed `a615_zap.mbn` format differ. No Surya GMU boot, firmware load, PAS call, rendering, or command submission has been ported or verified. Keep the Surya GPU option disabled until the probe is built and its hardware log is reviewed.
 
 ## Collecting device-specific input
 

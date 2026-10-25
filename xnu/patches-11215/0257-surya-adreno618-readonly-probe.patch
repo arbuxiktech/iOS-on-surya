@@ -1,0 +1,189 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -114,8 +114,9 @@ bsd/dev/sweet_spmi.c			standard
+ bsd/dev/sweet_usb.c			standard
+ bsd/dev/sweet_cpufreq.c			standard
+ bsd/dev/sweet_smmu.c			standard
+ bsd/dev/sweet_a630.c			standard
+ bsd/dev/sweet_a630_pas.c			standard
++bsd/dev/sweet_surya_gpu.c		standard
+ bsd/dev/mem.c				standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -59,3 +59,4 @@ extern void sweet_usb_probe(void);
+ extern void sweet_cpufreq_max(void);
+ extern void sweet_charger_start(void);
+ extern void sweet_a630_probe(void);
++extern void sweet_surya_gpu_probe(void);
+@@ -850,2 +850,3 @@ sweet_ufs_init(void)
+ 	sweet_usb_probe();
+ 	sweet_a630_probe();	/* sweetgpu=N, beryllium only, off by default */
++	sweet_surya_gpu_probe();	/* Surya Adreno 618 read-only stage 1 */
+diff --git a/bsd/dev/sweet_surya_gpu.c b/bsd/dev/sweet_surya_gpu.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/sweet_surya_gpu.c
+@@ -0,0 +1,159 @@
++/*
++ * Surya (Poco X3 NFC, SM7150): read-only Adreno 618 state probe.
++ *
++ * The MMIO bases and gate checks follow the user-provided live FDT and the
++ * pinned SM7150 mainline DTS. This first Surya GPU step deliberately only
++ * reads ABL's current state. Do not reuse the Beryllium Adreno 630 write
++ * stages: Surya has different GCC AXI, PDC, GMU chip ID, HFI votes and ZAP
++ * firmware. Only sweetgpu=1 is accepted here; higher values log and return
++ * before any MMIO mapping. The probe is therefore useful for collecting the
++ * first hardware log without enabling clocks, changing power domains, or
++ * touching GPU memory.
++ */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <pexpert/pexpert.h>
++#include "sweet_board.h"
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++void sweet_surya_gpu_probe(void);
++
++#define GCC_PA                  0x00100000u
++#define GCC_SIZE                0x00090000u
++#define GCC_GPU_CFG_AHB_CBCR    0x71004u
++#define GCC_GPU_MEMNOC_GFX_CBCR 0x7100cu
++#define GCC_GPU_SNOC_DVM_CBCR   0x71018u
++#define GCC_DDRSS_GPU_AXI_CBCR  0x4452cu
++#define GCC_GPU_GPLL0_VOTE      0x52004u
++
++#define GPUCC_PA                0x05090000u
++#define GPUCC_SIZE              0x00009000u
++#define GPUCC_GX_GDSCR          0x100cu
++#define GPUCC_CX_GDSCR          0x106cu
++#define GPUCC_CX_GDS_HW_CTRL    0x1540u
++#define GPUCC_GMU_CMD_RCGR      0x1120u
++#define GPUCC_GMU_CFG_RCGR      0x1124u
++#define GPUCC_CX_GMU_CBCR       0x1098u
++#define GPUCC_CXO_CBCR          0x109cu
++#define GPUCC_AHB_CBCR          0x1078u
++#define GPUCC_GX_GFX3D_CBCR     0x1054u
++#define GPUCC_CXO_AON_CBCR      0x1004u
++#define GPUCC_CX_APB_CBCR       0x1088u
++#define GPUCC_CX_SNOC_DVM_CBCR  0x108cu
++#define GPUCC_GX_GMU_CBCR       0x1064u
++#define GPUCC_GX_CXO_CBCR       0x1060u
++
++#define GPU_PA                  0x05000000u
++#define GPU_SIZE                0x00040000u
++#define GMU_PA                  0x0506a000u
++#define GMU_SIZE                0x00031000u
++#define SMMU_PA                 0x05040000u
++#define SMMU_SIZE               0x00010000u
++
++#define CBCR_CLK_OFF            (1u << 31)
++#define GDSC_PWR_ON             (1u << 31)
++#define GPU_R(reg)              ((uint32_t)(reg) * 4u)
++
++static uint32_t
++surya_gpu_rd(vm_offset_t base, uint32_t off)
++{
++	uint32_t value = *(volatile uint32_t *)(base + off);
++	__asm__ volatile("dmb oshld" ::: "memory");
++	return value;
++}
++
++static void
++surya_gpu_report_clock(vm_offset_t cc, const char *name, uint32_t off, bool *on)
++{
++	uint32_t value = surya_gpu_rd(cc, off);
++	bool running = (value & CBCR_CLK_OFF) == 0;
++	printf("SWEET SURYA GPU: clock %-12s CBCR=%#x %s\n", name, value,
++	    running ? "on" : "off");
++	if (on != NULL) {
++		*on = running;
++	}
++}
++
++void
++sweet_surya_gpu_probe(void)
++{
++	int stage = 0;
++	if (!sweet_board_surya() ||
++	    !PE_parse_boot_argn("sweetgpu", &stage, sizeof(stage)) || stage <= 0) {
++		return;
++	}
++	if (stage != 1) {
++		printf("SWEET SURYA GPU: only read-only stage 1 is ported; sweetgpu=%d ignored without MMIO\n", stage);
++		return;
++	}
++
++	vm_offset_t gcc = ml_io_map(GCC_PA, GCC_SIZE);
++	if (gcc == 0) {
++		printf("SWEET SURYA GPU: GCC mapping failed\n");
++		return;
++	}
++	uint32_t cfg = surya_gpu_rd(gcc, GCC_GPU_CFG_AHB_CBCR);
++	printf("SWEET SURYA GPU: Adreno 618 stage 1 (GPU=%#x GMU=%#x GPUCC=%#x SMMU=%#x)\n",
++	    GPU_PA, GMU_PA, GPUCC_PA, SMMU_PA);
++	printf("SWEET SURYA GPU: GCC cfg_ahb=%#x memnoc_gfx=%#x snoc_dvm=%#x ddrss_gpu_axi=%#x gpll0_vote=%#x\n",
++	    cfg, surya_gpu_rd(gcc, GCC_GPU_MEMNOC_GFX_CBCR),
++	    surya_gpu_rd(gcc, GCC_GPU_SNOC_DVM_CBCR),
++	    surya_gpu_rd(gcc, GCC_DDRSS_GPU_AXI_CBCR),
++	    surya_gpu_rd(gcc, GCC_GPU_GPLL0_VOTE));
++	if (cfg & CBCR_CLK_OFF) {
++		printf("SWEET SURYA GPU: GPUCC config clock is off; GPUCC/GMU/core not read\n");
++		return;
++	}
++
++	vm_offset_t cc = ml_io_map(GPUCC_PA, GPUCC_SIZE);
++	if (cc == 0) {
++		printf("SWEET SURYA GPU: GPUCC mapping failed\n");
++		return;
++	}
++	uint32_t cx = surya_gpu_rd(cc, GPUCC_CX_GDSCR);
++	uint32_t gx = surya_gpu_rd(cc, GPUCC_GX_GDSCR);
++	printf("SWEET SURYA GPU: CX GDSCR=%#x HW_STATUS=%#x; GX GDSCR=%#x\n",
++	    cx, surya_gpu_rd(cc, GPUCC_CX_GDS_HW_CTRL), gx);
++	printf("SWEET SURYA GPU: GMU RCG cmd=%#x cfg=%#x\n",
++	    surya_gpu_rd(cc, GPUCC_GMU_CMD_RCGR), surya_gpu_rd(cc, GPUCC_GMU_CFG_RCGR));
++
++	bool ahb = false, cx_gmu = false, cxo = false, gx_gfx3d = false;
++	surya_gpu_report_clock(cc, "ahb", GPUCC_AHB_CBCR, &ahb);
++	surya_gpu_report_clock(cc, "cx_gmu", GPUCC_CX_GMU_CBCR, &cx_gmu);
++	surya_gpu_report_clock(cc, "cxo", GPUCC_CXO_CBCR, &cxo);
++	surya_gpu_report_clock(cc, "cx_snoc_dvm", GPUCC_CX_SNOC_DVM_CBCR, NULL);
++	surya_gpu_report_clock(cc, "cx_apb", GPUCC_CX_APB_CBCR, NULL);
++	surya_gpu_report_clock(cc, "cxo_aon", GPUCC_CXO_AON_CBCR, NULL);
++	surya_gpu_report_clock(cc, "gx_gfx3d", GPUCC_GX_GFX3D_CBCR, &gx_gfx3d);
++	surya_gpu_report_clock(cc, "gx_gmu", GPUCC_GX_GMU_CBCR, NULL);
++	surya_gpu_report_clock(cc, "gx_cxo", GPUCC_GX_CXO_CBCR, NULL);
++
++	if (!(cx & GDSC_PWR_ON) || !ahb || !cx_gmu || !cxo) {
++		printf("SWEET SURYA GPU: CX domain/GMU clocks are gated; GMU registers not read\n");
++		return;
++	}
++	vm_offset_t gmu = ml_io_map(GMU_PA, GMU_SIZE);
++	if (gmu == 0) {
++		printf("SWEET SURYA GPU: GMU mapping failed\n");
++		return;
++	}
++	printf("SWEET SURYA GPU: GMU SYSRESET=%#x FW_INIT_RESULT=%#x RPMH_POWER_STATE=%#x HFI_CTRL_STATUS=%#x SPTPRAC=%#x\n",
++	    surya_gpu_rd(gmu, GPU_R(0x5000)), surya_gpu_rd(gmu, GPU_R(0x501c)),
++	    surya_gpu_rd(gmu, GPU_R(0x50ec)), surya_gpu_rd(gmu, GPU_R(0x5180)),
++	    surya_gpu_rd(gmu, GPU_R(0x50d0)));
++
++	if (!(gx & GDSC_PWR_ON) || !gx_gfx3d) {
++		printf("SWEET SURYA GPU: GX domain/core clock is gated; GPU registers not read\n");
++		return;
++	}
++	vm_offset_t gpu = ml_io_map(GPU_PA, GPU_SIZE);
++	if (gpu == 0) {
++		printf("SWEET SURYA GPU: core mapping failed\n");
++		return;
++	}
++	printf("SWEET SURYA GPU: RBBM_STATUS=%#x CP_ALWAYS_ON=%#x\n",
++	    surya_gpu_rd(gpu, GPU_R(0x0210)), surya_gpu_rd(gpu, GPU_R(0x0980)));
++	printf("SWEET SURYA GPU: stage 1 complete (read-only; no SMMU or firmware access)\n");
++}
++#endif /* ARM64_BOARD_CONFIG_SWEET */
