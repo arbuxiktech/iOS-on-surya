@@ -199,7 +199,7 @@ diff --git a/bsd/dev/sweet_surya_gpu.c b/bsd/dev/sweet_surya_gpu.c
 +#define A6XX_RBBM_STATUS        0x0210
 +#define A6XX_CP_SQE_INSTR_BASE  0x0830
 +#define A6XX_CP_ALWAYS_ON_COUNTER 0x0980
-+#define SURYA_GMU_CHIPID        0x06010800u /* SM7150 Adreno 618 chip ID */
++#define SURYA_GMU_CHIPID        0x06018000u /* SM7150 Adreno 618 GMU HFI ID */
 +
 +/* ------------------------------------------------------------------ */
 +/* Global state and helpers                                            */
