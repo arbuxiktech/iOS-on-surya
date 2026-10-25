@@ -2,7 +2,7 @@
 """Build the minimal Apple Device Tree that the SWEET xnu needs to boot.
 
 Only what the early boot path actually reads (see NOTES.md); every MMIO
-address comes from a supported board profile. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--memory BASE:SIZE] [--board sweet|surya|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE]
+address comes from a supported board profile. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--memory BASE:SIZE] [--board sweet|surya|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE] [--touch-fw FILE]
 """
 import hashlib, os, struct, sys
 
@@ -164,9 +164,25 @@ def bluetooth_node(ph):
     ])
 
 
-def build(seed=None, qemu=False, highmem=False, memory=None, board='sweet', display_scale=3, points=(375, 812), lowpool=None):
+def build(seed=None, qemu=False, highmem=False, memory=None, board='sweet', display_scale=3, points=(375, 812), lowpool=None, touch_fw=None):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
     b = BOARDS[board]
+    touch_fw_node = []
+    if touch_fw is not None:
+        if board != 'surya' or qemu:
+            raise SystemExit('--touch-fw is supported only with --board surya')
+        try:
+            firmware = open(touch_fw, 'rb').read()
+        except OSError as e:
+            raise SystemExit(f'cannot read touchscreen firmware {touch_fw}: {e}')
+        if not firmware:
+            raise SystemExit(f'touchscreen firmware is empty: {touch_fw}')
+        if len(firmware) > 2 * 1024 * 1024:
+            raise SystemExit('touchscreen firmware exceeds the 2 MiB parser limit')
+        # Kernel patch 0253 reads this optional, user-supplied property. Keep
+        # the binary outside Git and opt-in to the volatile SRAM download with
+        # sweettouchstage=5 sweettouchfw=1.
+        touch_fw_node = [node('sweet-touch', [('firmware', firmware)])]
     if highmem and memory is not None:
         raise SystemExit('--highmem and --memory are mutually exclusive')
     if qemu and memory is not None:
@@ -353,7 +369,7 @@ def build(seed=None, qemu=False, highmem=False, memory=None, board='sweet', disp
         ('manufacturer', cstr('Apple Inc.')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
-    ], [chosen, defaults, cpus, arm_io, fbcon, buttons] + product + ([] if qemu else [ufs]))
+    ], [chosen, defaults, cpus, arm_io, fbcon, buttons] + product + touch_fw_node + ([] if qemu else [ufs]))
 
 
 if __name__ == '__main__':
@@ -362,7 +378,8 @@ if __name__ == '__main__':
     points = tuple(int(v) for v in sys.argv[sys.argv.index('--points') + 1].split('x')) if '--points' in sys.argv else (375, 812)
     lowpool = parse_lowpool(sys.argv[sys.argv.index('--lowpool') + 1]) if '--lowpool' in sys.argv else None
     memory = parse_memory(sys.argv[sys.argv.index('--memory') + 1]) if '--memory' in sys.argv else None
-    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv, memory=memory, board=board, display_scale=scale, points=points, lowpool=lowpool)
+    touch_fw = sys.argv[sys.argv.index('--touch-fw') + 1] if '--touch-fw' in sys.argv else None
+    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv, memory=memory, board=board, display_scale=scale, points=points, lowpool=lowpool, touch_fw=touch_fw)
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:
