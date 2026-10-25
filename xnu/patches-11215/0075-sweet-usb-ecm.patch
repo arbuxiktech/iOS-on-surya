@@ -178,7 +178,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  static void
  ud_setup(void)
  {
-@@ -323,13 +422,16 @@ ud_setup(void)
+@@ -323,17 +422,27 @@ ud_setup(void)
  	uint8_t *data = (uint8_t *)(ud.dma + UD_DATA);
  	uint8_t type = st[0], req = st[1];
  	uint16_t value = (uint16_t)(st[2] | st[3] << 8);
@@ -197,7 +197,6 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  		ok = false;
  	} else if (req == 6) {          /* GET_DESCRIPTOR */
  		switch (value >> 8) {
-@@ -336,1 +438,8 @@ ud_setup(void)
 -		case 1: memcpy(data, ud_dev_desc, sizeof(ud_dev_desc)); n = sizeof(ud_dev_desc); break;
 +		case 1:
 +			memcpy(data, ud_dev_desc, sizeof(ud_dev_desc));
@@ -207,6 +206,9 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
 +				data[10] = 0x42; data[11] = 0xd0; /* PID 0xd042 */
 +			}
 +			n = sizeof(ud_dev_desc); break;
+ 		case 2: memcpy(data, ud_cfg_desc, sizeof(ud_cfg_desc)); n = sizeof(ud_cfg_desc); break;
+ 		case 3: n = ud_string(value & 0xff, data); ok = n != 0; break;
+ 		default: ok = false; break;
 @@ -343,12 +452,24 @@ ud_setup(void)
  		dwc_wr(DCFG, dcfg | ((uint32_t)(value & 0x7f) << 3));
  		printf("SWEET USB: address %u\n", value & 0x7f);
