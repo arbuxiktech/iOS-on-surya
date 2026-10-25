@@ -75,7 +75,8 @@ index 917d4cd..179aec0 100644
 +				    !fHw || !fFlip ? "no hardware scaler / page flipping" : (!fZcOK ? "MDP SMMU not verified bypass" : "no low pool"));
 +			}
 +		}
- 		int blfade = 1;
+-		int blfade = 1;
++		int blfade = sweet_board_beryllium() ? 1 : 0;
  		PE_parse_boot_argn("sweetfb_blfade", &blfade, sizeof(blfade));
  		if (blfade) {
 @@ -486,19 +516,27 @@ AppleCLCD::start(IOService *provider)

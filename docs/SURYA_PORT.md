@@ -13,6 +13,7 @@ The SM7150 mainline tree describes Surya and its shared components in [`sm7150-x
 - Surya uses six Kryo 470 Silver/A55 cores and two Kryo 470 Gold/A76 cores.
 - The shared device tree uses PM6150 and PM6150L PMICs. The captured runtime tree identifies a Novatek `NVT-ts-spi` touchscreen on SPI CS0 at 8 MHz, with reset GPIO 8 and IRQ GPIO 9; its XNU driver is not ported.
 - Surya has Huaxing and Tianma display panel variants in the upstream device-tree set. This phone's live tree identifies the Tianma NT36672C video panel. Use the extracted Xiaomi base DTB with the stock DTBO selection; the merged recovery FDT is for inspection and should not be substituted as the boot-image base.
+- The live tree exposes a `qcom,pm6150l-spmi-wled` block on PMIC SID 5 (`0xd800` control, `0xd900` sink). This is WLED5: the mainline driver uses module A/B brightness and sync registers, unlike the PMI8998 WLED4 string registers used by the Poco F1 fade path. The Surya WLED5 backend is not ported; the existing F1-only fade now defaults off for Surya. See the pinned [SM7150 mainline WLED driver](https://github.com/sm7150-mainline/linux/blob/v7.2/drivers/video/backlight/qcom-wled.c).
 
 ## Upstream DTB references
 
@@ -92,7 +93,7 @@ The command above expects the extracted stock base DTB at `dtb/surya/dtb`; the m
 ## Work still needed
 
 1. Build Enxerto and its Surya ADT; RAM-boot with the stock DTBO still present and confirm ABL passes the merged IDP/Tianma/touch tree. No iOS boot has been attempted yet.
-2. Bring up XNU's Tianma display path and backlight; verify framebuffer handoff and brightness control. Add Huaxing support if needed for other Surya units.
+2. Bring up XNU's Tianma display path and implement the PM6150L WLED5 backend; verify framebuffer handoff and brightness control. Add Huaxing support if needed for other Surya units.
 3. Port the Novatek SPI touchscreen using the captured CS0/8 MHz/GPIO8 reset/GPIO9 IRQ configuration. Verify the inherited PM6150L GPIO2/PM6150 PON key path and read-only battery estimate on hardware; keep charger writes off until mapped against Surya's own device tree.
 4. Bring up the Adreno 618, WLAN/Bluetooth, modem, audio, cameras, sensors and NFC; these are not covered by the Poco F1 drivers.
 5. Confirm Surya's actual GPT and validate Renegade/root and Bergamota device operations against its partition and USB identities. Keep device changes temporary until the RAM-boot and driver paths are verified.
