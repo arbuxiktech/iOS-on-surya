@@ -183,6 +183,17 @@ private struct BuildPane: View {
                     if b.targetBoard == "surya" {
                         Text("Surya is at bring-up stage. The image builder disables charging support and uses a conservative one-core preset; boot with fastboot boot only until the hardware port is verified.")
                             .font(.caption).foregroundStyle(.orange)
+                        Picker("Surya DTB", selection: $b.suryaDTBVariant) {
+                            Text("Stock DTB (dtb/surya/dtb)").tag("stock")
+                            Text("Huaxing mainline reference").tag("huaxing")
+                            Text("Tianma mainline reference").tag("tianma")
+                        }
+                        Text("Run tools/build-surya-dtb.sh to fetch/build the mainline references. They are not stock Xiaomi DTBs and have not been checked with ABL.")
+                            .font(.caption).foregroundStyle(.orange)
+                        if !b.suryaDTBAvailable {
+                            Text("Selected DTB is missing: \(b.suryaDTBPath)")
+                                .font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                        }
                     }
                     Picker("Kernel", selection: $b.kernelPath) {
                         if b.kernelPath.isEmpty { Text("(none found)").tag("") }

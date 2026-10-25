@@ -3,7 +3,7 @@
 #   BOARD=sweet (default)  boot.img v2 mirroring the stock PixelOS header, DTB in the header
 #   BOARD=surya            boot.img v2, SM7150 Poco X3 NFC; charger paths stay disabled until ported
 #   BOARD=beryllium        boot.img v1, Image.gz + appended DTB like the Poco F1 ROM (SDM845 ABL)
-# Usage: [BOARD=..] [DTB=..] ./build.sh [payload.bin]
+# Usage: [BOARD=..] [DTB=..] [SURYA_DTB_VARIANT=stock|huaxing|tianma] ./build.sh [payload.bin]
 set -euo pipefail
 cd "$(dirname "$0")"
 BOARD=${BOARD:-sweet}
@@ -30,10 +30,28 @@ CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align
 case $BOARD in
 sweet)		DTB=${DTB:-../dtb/boot_unpacked/dtb} ;;
 beryllium)	DTB=${DTB:-../dtb/beryllium/dtb}; CFLAGS="$CFLAGS -DBOARD_BERYLLIUM" ;;
-surya)		DTB=${DTB:-../dtb/surya/dtb}; CFLAGS="$CFLAGS -DBOARD_SURYA -DENXERTO_CHARGER=0 -DENXERTO_OFFMODE_CHARGING=0" ;;
+surya)
+	case ${SURYA_DTB_VARIANT:-stock} in
+	stock)   DTB=${DTB:-../dtb/surya/dtb} ;;
+	huaxing) DTB=${DTB:-../dtb/surya/surya-huaxing.dtb} ;;
+	tianma)  DTB=${DTB:-../dtb/surya/surya-tianma.dtb} ;;
+	*) echo "error: SURYA_DTB_VARIANT must be stock, huaxing, or tianma" >&2; exit 1 ;;
+	esac
+	CFLAGS="$CFLAGS -DBOARD_SURYA -DENXERTO_CHARGER=0 -DENXERTO_OFFMODE_CHARGING=0"
+	;;
 *)		echo "error: unknown BOARD=$BOARD" >&2; exit 1 ;;
 esac
-[ -f "$DTB" ] || { echo "error: $DTB missing (stock DTB of the phone, see README)" >&2; exit 1; }
+if [ ! -f "$DTB" ]; then
+	if [ "$BOARD" = surya ]; then
+		echo "error: $DTB missing; extract the phone's stock DTB or run tools/build-surya-dtb.sh and select SURYA_DTB_VARIANT=huaxing|tianma" >&2
+	else
+		echo "error: $DTB missing (stock DTB of the phone, see README)" >&2
+	fi
+	exit 1
+fi
+if [ "$BOARD" = surya ] && [ "${SURYA_DTB_VARIANT:-stock}" != stock ]; then
+	echo "warning: packaging a mainline reference DTB; panel and ABL compatibility are unverified" >&2
+fi
 mkdir -p out
 # Bergamota fastboot (docs/BERGAMOTA_FASTBOOT.md): runs by itself when there is no payload; BERGAMOTA=1
 # forces it even with a payload in the ramdisk (boot.img cmdline flag), BERGAMOTA=0 keeps the old

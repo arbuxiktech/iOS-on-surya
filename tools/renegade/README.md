@@ -18,6 +18,8 @@ The Bergamota Project's patcher. iOS 18 ships every system binary as **arm64e** 
 
 `root_tweaks18.py` holds the first-boot changes to the root (Setup skip, activation, SSH, staged system apps, ...). `dsctools/` symbolicates and disassembles the rewritten shared cache. The kernel half lives in Heartwood: patch 0131 (`sweetarm64e=1`) loads arm64e binaries, and 0141 emulates FJCVTZS, which has no 1:1 rewrite. Details and history are in `docs/IOS18_PORT.md`.
 
+`renegade boot` accepts `BOARD=beryllium|surya`; the Surya profile expects a Surya ADT and stock DTB. `SURYA_DTB_VARIANT=huaxing|tianma` can package a generated mainline reference DTB for source experiments, but those blobs are not stock Xiaomi boot trees. Root-image creation itself is shared; Surya partition access and the USB/network control path have not been validated on hardware. See `docs/SURYA_PORT.md`.
+
 ## Platforms (macOS and Linux)
 
 Everything that differs between the two hosts lives in `renegade_platform.py` (not `platform.py`: that would shadow the standard library module). The image tools (`hfsx`, `hfsroot_owners`, `simg2img`, `img2simg`, `pacstrip`, `pacstrip_cache`, `fips_rehmac`, `jailbreak`) are Python and run on both. Hole punching (`hfs_trim`, `--consume`) uses `F_PUNCHHOLE` on macOS and `fallocate(PUNCH_HOLE)` on Linux (ext4, xfs, btrfs, tmpfs; if the filesystem cannot punch holes, a warning is printed and `--consume` keeps both files on disk until it ends).

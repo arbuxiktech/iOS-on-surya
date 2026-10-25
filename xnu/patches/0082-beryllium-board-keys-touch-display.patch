@@ -1,10 +1,11 @@
 --- /dev/null
 +++ b/bsd/dev/sweet_board.h
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,62 @@
 +/*
-+ * SWEET kernels run on two Xiaomi phones. The ADT root compatible
-+ * (tools/mkadt.py --board) names the board; everything else is common.
++ * SWEET kernels run on several Xiaomi phones. The ADT root compatible
++ * (tools/mkadt.py --board) names the board; drivers gate board-specific paths.
 + *   xiaomi,sweet      Redmi Note 10 Pro, SM7150 (default)
++ *   xiaomi,surya      Poco X3 NFC, SM7150
 + *   xiaomi,beryllium  Poco F1, SDM845
 + */
 +#ifndef _SWEET_BOARD_H_
@@ -47,6 +48,16 @@
 +	static int cached = -1;
 +	if (cached < 0) {
 +		cached = sweet_board_is("xiaomi,beryllium") ? 1 : 0;
++	}
++	return cached == 1;
++}
++
++static inline bool
++sweet_board_surya(void)
++{
++	static int cached = -1;
++	if (cached < 0) {
++		cached = sweet_board_is("xiaomi,surya") ? 1 : 0;
 +	}
 +	return cached == 1;
 +}
@@ -415,7 +426,7 @@
  			if (err) {
  				if ((errors++ % 100u) == 0) {
  					printf("SWEET TOUCH: report err=%d irq=%#x\n", err, st.irq_status);
-@@ -644,6 +783,9 @@
+@@ -644,6 +783,14 @@
  		return;
  	}
  	st.started = true;
@@ -424,6 +435,11 @@
 +	}
  	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
  	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
++	if (sweet_board_surya()) {
++		/* Surya uses Novatek nt36xxx over SPI; this legacy driver probes unrelated I2C. */
++		printf("SWEET TOUCH: surya SPI driver not ported; skipped\n");
++		return;
++	}
  	if (!enabled) {
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp

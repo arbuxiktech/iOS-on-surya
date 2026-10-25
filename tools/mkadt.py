@@ -2,7 +2,7 @@
 """Build the minimal Apple Device Tree that the SWEET xnu needs to boot.
 
 Only what the early boot path actually reads (see NOTES.md); every MMIO
-address comes from a supported board profile. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--board sweet|surya|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE]
+address comes from a supported board profile. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--memory BASE:SIZE] [--board sweet|surya|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE]
 """
 import hashlib, os, struct, sys
 
@@ -133,6 +133,16 @@ def parse_lowpool(text):
     return base, size
 
 
+def parse_memory(text):
+    try:
+        base, size = (int(v, 0) for v in text.split(':'))
+    except (ValueError, TypeError):
+        raise SystemExit('--memory expects BASE:SIZE (decimal or 0x-prefixed hex)')
+    if base < 0 or size <= 0 or base & 0x3fff or size & 0x3fff or base + size > 0x10000000000000000:
+        raise SystemExit('--memory must be a positive, 16K-aligned physical range below 2^64')
+    return base, size
+
+
 def bluetooth_node(ph):
     """Stock D22AP: /arm-io/uart1/bluetooth (compatible bluetooth,n88). bluetoothd finds it by
     IOServiceNameMatching("bluetooth") and reads local-mac-address, transport-encoding and
@@ -155,13 +165,21 @@ def bluetooth_node(ph):
     ])
 
 
-def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, points=(375, 812), lowpool=None):
+def build(seed=None, qemu=False, highmem=False, memory=None, board='sweet', display_scale=3, points=(375, 812), lowpool=None):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
     b = BOARDS[board]
-    phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
-    if board != 'sweet' and not qemu:
-        if not highmem:
-            phys_base, mem_size = b['mem']
+    if highmem and memory is not None:
+        raise SystemExit('--highmem and --memory are mutually exclusive')
+    if qemu and memory is not None:
+        raise SystemExit('--memory is for phone boards, not --qemu')
+    if highmem and board == 'surya':
+        raise SystemExit('--highmem reuses sweet RAM data; use --memory with Surya DDR values from its live FDT')
+    if memory is not None:
+        phys_base, mem_size = memory
+    elif highmem:
+        phys_base, mem_size = HIGH_PHYS_BASE, HIGH_MEM_SIZE
+    else:
+        phys_base, mem_size = (PHYS_BASE, MEM_SIZE) if board == 'sweet' or qemu else b['mem']
     fb, fb_size = b['fb']
     fb_w, fb_h = b['fb_wh']
     if lowpool is not None:
@@ -346,7 +364,8 @@ if __name__ == '__main__':
     scale = int(sys.argv[sys.argv.index('--display-scale') + 1]) if '--display-scale' in sys.argv else 3
     points = tuple(int(v) for v in sys.argv[sys.argv.index('--points') + 1].split('x')) if '--points' in sys.argv else (375, 812)
     lowpool = parse_lowpool(sys.argv[sys.argv.index('--lowpool') + 1]) if '--lowpool' in sys.argv else None
-    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv, board=board, display_scale=scale, points=points, lowpool=lowpool)
+    memory = parse_memory(sys.argv[sys.argv.index('--memory') + 1]) if '--memory' in sys.argv else None
+    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv, memory=memory, board=board, display_scale=scale, points=points, lowpool=lowpool)
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:

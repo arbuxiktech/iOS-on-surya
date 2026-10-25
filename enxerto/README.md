@@ -9,7 +9,9 @@ The Bergamota Project's bootloader (*enxerto*, Portuguese for "graft": the piece
 
 ```sh
 BOARD=beryllium enxerto/build.sh [payload.bin]   # -> enxerto/out/enxerto-boot.img, bergamota-fastboot.img (what the Mac app boots with `fastboot boot`), charge-test.img, out/preview/*.ppm
-BOARD=surya DTB=../dtb/surya/dtb enxerto/build.sh [payload.bin]   # experimental Android v2 profile; PMIC charging code is disabled
+BOARD=surya DTB=../dtb/surya/dtb enxerto/build.sh [payload.bin]   # experimental Android v2 profile; uses the phone's extracted stock DTB
+# Or run `bash tools/build-surya-dtb.sh` from the repo root, then set SURYA_DTB_VARIANT=huaxing|tianma.
+# The mainline reference DTBs are not stock Xiaomi DTBs; Surya charger writes remain disabled.
 ```
 
 The Surya profile is not hardware-verified. See [`docs/SURYA_PORT.md`](../docs/SURYA_PORT.md) for device-tree collection and bring-up status. RAM-boot only; do not flash the generated image.

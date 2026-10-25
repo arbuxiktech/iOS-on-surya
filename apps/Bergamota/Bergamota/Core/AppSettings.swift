@@ -9,6 +9,7 @@ final class AppSettings {
 
     var repoPath: String { didSet { d.set(repoPath, forKey: "repoPath") } }
     var targetBoard: String { didSet { d.set(targetBoard, forKey: "targetBoard") } }
+    var suryaDTBVariant: String { didSet { d.set(suryaDTBVariant, forKey: "suryaDTBVariant") } }
     var phoneIP: String { didSet { d.set(phoneIP, forKey: "phoneIP") } }
     var fastbootPath: String { didSet { d.set(fastbootPath, forKey: "fastbootPath") } }
     var adbPath: String { didSet { d.set(adbPath, forKey: "adbPath") } }
@@ -45,6 +46,7 @@ final class AppSettings {
         let d = UserDefaults.standard
         repoPath = d.string(forKey: "repoPath") ?? Self.defaultRepo
         targetBoard = d.string(forKey: "targetBoard") ?? "beryllium"
+        suryaDTBVariant = d.string(forKey: "suryaDTBVariant") ?? "stock"
         phoneIP = d.string(forKey: "phoneIP") ?? "192.168.7.2"
         fastbootPath = d.string(forKey: "fastbootPath") ?? ""
         adbPath = d.string(forKey: "adbPath") ?? ""

@@ -17,7 +17,7 @@ struct CmdlinePreset: Identifiable, Codable, Hashable, Sendable {
 
 enum Presets {
     static let defaultCmdline = "debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30 sweetfb_vsync=1 sweetfb_scale=1 sweetfb_flip=1 sweetusb=2 sweetbattery=1 sweetsample=- sweetnetroute=1 sweetfb_hw=1"
-    static let suryaBringupCmdline = "debug=0xc serial=3 cpus=1 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetusb=2 sweettouch=0 sweetbattery=0 sweetgpu=0 sweetwlan=0 sweetbt=0"
+    static let suryaBringupCmdline = "debug=0xc serial=3 cpus=1 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetusb=2 sweetkeys=1 sweettouch=0 sweetbattery=1 sweetgpu=0 sweetwlan=0 sweetbt=0"
     static var seed: [CmdlinePreset] {
         [CmdlinePreset(name: "default @3x", cmdline: defaultCmdline),
          CmdlinePreset(name: "bluetooth test", cmdline: defaultCmdline + " sweetwlan=2 sweetbtfast=1 sweetbtibs=1"),
@@ -70,6 +70,9 @@ final class BuildModel {
     }
     var kernelPath = ""
     var adtPath = ""
+    var suryaDTBVariant: String {
+        didSet { settings.suryaDTBVariant = suryaDTBVariant }
+    }
     var cmdline = Presets.defaultCmdline
     var selectedPresetID: UUID?
     var imageName = ""
@@ -79,9 +82,19 @@ final class BuildModel {
     var lastResult: String?
     var lastBuiltImage: String?
 
+    var suryaDTBPath: String {
+        switch suryaDTBVariant {
+        case "huaxing": settings.repoFile("dtb/surya/surya-huaxing.dtb")
+        case "tianma": settings.repoFile("dtb/surya/surya-tianma.dtb")
+        default: settings.repoFile("dtb/surya/dtb")
+        }
+    }
+    var suryaDTBAvailable: Bool { FileManager.default.fileExists(atPath: suryaDTBPath) }
+
     @ObservationIgnored private let settings: AppSettings
     init(settings: AppSettings) {
         self.settings = settings
+        suryaDTBVariant = settings.suryaDTBVariant
         targetBoard = settings.targetBoard
         let presetName = settings.targetBoard == "surya" ? "Surya bring-up" : "default @3x"
         if let p = presets.first(where: { $0.name == presetName }) {
@@ -152,19 +165,25 @@ final class BuildModel {
     }
     var targetImagePath: String { settings.repoFile("\(settings.bootDir)/out/\(settings.bootImageBase)-\(imageName).img") }
     var targetExists: Bool { FileManager.default.fileExists(atPath: targetImagePath) }
-    var canBuild: Bool { !building && Self.validName(imageName) && !kernelPath.isEmpty && !adtPath.isEmpty && !cmdline.trimmingCharacters(in: .whitespaces).isEmpty && settings.repoValid }
+    var canBuild: Bool { !building && Self.validName(imageName) && !kernelPath.isEmpty && !adtPath.isEmpty && !cmdline.trimmingCharacters(in: .whitespaces).isEmpty && settings.repoValid && (targetBoard != "surya" || suryaDTBAvailable) }
 
     func build() { Task { _ = await runBuild() } }
 
     /// Runs mkpayload + build.sh + copy. Returns the built image path, or nil on failure.
     func runBuild() async -> String? {
-        guard canBuild else { lastResult = "Cannot build (check name, kernel, ADT, cmdline, repo)"; return nil }
+        guard canBuild else {
+            lastResult = targetBoard == "surya" && !suryaDTBAvailable
+                ? "Surya DTB missing; extract the stock tree or generate a panel reference"
+                : "Cannot build (check name, kernel, ADT, cmdline, repo)"
+            return nil
+        }
         guard let python = settings.python else { output = "python3 not found (set it in Settings)\n"; lastResult = "python3 not found"; return nil }
         building = true
         lastResult = nil
         lastBuiltImage = nil
         output = ""
         let name = imageName, kernel = kernelPath, adt = adtPath, board = targetBoard
+        let dtbVariant = suryaDTBVariant
         let cmd = cmdline.trimmingCharacters(in: .whitespacesAndNewlines)
         let repo = settings.repoURL.path
         let dir = settings.bootDir, base = settings.bootImageBase
@@ -180,7 +199,9 @@ final class BuildModel {
         }
         var ok = await step("mkpayload", python, ["tools/mkpayload.py", kernel, adt, payload, "--cmdline", cmd], cwd: repo)
         if ok {
-            ok = await step("build.sh", "/bin/bash", ["./build.sh", "out/payload-\(name).bin"], cwd: repo + "/" + dir, env: ["BOARD": board])
+            var env = ["BOARD": board]
+            if board == "surya" { env["SURYA_DTB_VARIANT"] = dtbVariant }
+            ok = await step("build.sh", "/bin/bash", ["./build.sh", "out/payload-\(name).bin"], cwd: repo + "/" + dir, env: env)
         }
         var result = "Build failed"
         var built: String?

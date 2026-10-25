@@ -22,7 +22,7 @@
 
 The Poco F1 boots the **unmodified iOS 18.7.8 userland of the iPhone XR** (`iPhone11,8`) to SpringBoard. It runs from its own UFS storage and is driven from a Mac over USB. Four parts make that work, each named after a piece of the bergamot tree:
 
-An experimental source-level bring-up profile for the Poco X3 NFC (`surya`, SM7150) is also being added. It is not boot-verified and does not yet have the Surya-specific kernel drivers required for a usable port; see [`docs/SURYA_PORT.md`](docs/SURYA_PORT.md).
+An experimental source-level bring-up profile for the Poco X3 NFC (`surya`, SM7150) now spans the Enxerto builder, XNU board gating, Apple Device Tree generator, Renegade boot helper and Bergamota build controls. It is not boot-verified and still lacks several Surya-specific kernel drivers; see [`docs/SURYA_PORT.md`](docs/SURYA_PORT.md).
 
 | | Part | What it does | Where |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ Qualcomm ABL (stock, unlocked)
 | USB | CDC-ECM Ethernet: SSH at `root@192.168.7.2`, live kernel log on UDP 5140, internet shared from the Mac |
 | Battery | Real fuel gauge and charger state; the off-mode charging screen lives in Enxerto |
 | Kernel | Heartwood on **xnu-11215.81.4** since 2026-10-23 (it was xnu-8796, the iOS 16 generation, before that) |
-| Surya port | Enxerto and ADT profiles added; not built or booted on a Surya device, hardware drivers still outstanding |
+| Surya port | Source-level board profiles and reproducible mainline DTB references are present; not built or booted on a Surya device, hardware drivers still outstanding |
 | Working on | GPU acceleration on the Adreno 630 (OpenGL ES over Mesa freedreno, then Metal) |
 | Not working | Wi-Fi, cellular, Bluetooth, audio, camera, sensors, SEP / Face ID, GPU acceleration |
 
