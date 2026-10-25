@@ -7,7 +7,7 @@ diff --git a/bsd/conf/files b/bsd/conf/files
  bsd/dev/sweet_a630.c			standard
  bsd/dev/sweet_a630_pas.c			standard
 +bsd/dev/sweet_surya_gpu.c		standard
- bsd/dev/beryllium_wlan.c			standard
+ bsd/dev/beryllium_wlan.c		standard
  bsd/dev/beryllium_bt_hci.c		standard
  bsd/dev/mem.c				standard
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
