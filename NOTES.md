@@ -1,5 +1,12 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya source-level bring-up profile (2026-10-25) <<<
+* Commit `29d58bd5bee854bfda42d300c1505fcb8a3fd436` adds Surya (`surya`, Poco X3 NFC) profiles to Enxerto, `tools/mkadt.py`, XNU board detection/touch gating, and Bergamota's Build pane and file-based builder; details and commands are in `docs/SURYA_PORT.md`.
+* Upstream basis: SM7150 Xiaomi DTS v7.2 (1080x2400 framebuffer at `0x9c000000`, separate ramoops at `0x9d800000`, PM6150/PM6150L, Novatek `nt36xxx` SPI touch) and AOSP Android 10 boot header v2. The generated low memory range `0xb0000000..0xfd000000`, Enxerto offsets and OS patch-level field are assumptions pending the stock boot image/live FDT.
+* Surya charger writes/off-mode screen are disabled; the app preset uses one CPU, leaves kernel console visible, enables the inherited SM7150 USB path, and disables touch/battery/GPU/WLAN/BT paths. Patch 0251 skips the incompatible legacy I2C touch path.
+* No Surya boot image or live FDT was supplied (user asked to proceed from upstream sources). No build, compile, test, hardware boot or flash was performed. The XNU patch series and app changes remain uncompiled; this is a bring-up scaffold, not a complete or boot-verified port.
+* Next: collect the stock `boot.img` and live `/sys/firmware/fdt`; verify header offsets, board IDs, memory and panel; then build and validate one stage at a time. Remaining driver work includes display/backlight, SPI touch, PMIC battery/charger, Adreno 618, WLAN/BT, modem, audio, camera, sensors and NFC, plus Surya partition/root integration.
+
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Wi-Fi / Bluetooth on iOS 18 (branch `wifi-bt18`, 2026-10-24): docs/WIFI_BT_IOS18.md <<<
