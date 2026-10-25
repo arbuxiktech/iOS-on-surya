@@ -12,9 +12,8 @@ import adt  # noqa: E402
 # Kernel-managed RAM: above every Qualcomm XPU carve-out (see NOTES.md)
 PHYS_BASE = 0xb0000000
 MEM_SIZE = 0x4d000000
-# --highmem (phone only): the whole upper DDR bank. The live FDT memory node is
-# <0x80000000 2G>, <0x1_00000000 0xfcc00000>; every fixed reserved-memory
-# carve-out is in the low bank and the dynamic pools are limited below 4G.
+# --highmem: the whole upper DDR bank. The Surya live FDT has adjacent banks
+# <0x80000000 2G>, <0x1_00000000 0xfcc00000>; fixed carve-outs are below 4G.
 HIGH_PHYS_BASE = 0x100000000
 HIGH_MEM_SIZE = 0xfcc00000
 # /arm-io children are relative to this; it must not be 0 (serial_init bails)
@@ -56,9 +55,9 @@ BOARDS = {
         compat=['xiaomi,surya', 'xiaomi,sweet', 'qcom,sm7150'],
         # Snapdragon 732G: six Kryo 470 Silver/A55 cores, two Gold/A76 cores.
         cpu_compat='qcom,kryo470', big_from=6, freqs=(1804800000, 2304000000),
-        # Reuse sweet's low-memory window after the common framebuffer/ramdump
-        # reservations. This is an assumption until Surya's live FDT is checked.
-        mem=(PHYS_BASE, MEM_SIZE), ecid=SURYA_ECID),
+        # The captured live FDT has fixed framebuffer, ramoops and Qualcomm
+        # carve-outs in the low bank. Keep XNU allocations in the upper bank.
+        mem=(HIGH_PHYS_BASE, HIGH_MEM_SIZE), ecid=SURYA_ECID),
     'beryllium': dict(
         # cont_splash_mem@9d400000, simple-framebuffer 1080x2246 (mainline beryllium-common)
         fb=(0x9d400000, 0x2400000), fb_wh=(1080, 2246),
@@ -172,8 +171,6 @@ def build(seed=None, qemu=False, highmem=False, memory=None, board='sweet', disp
         raise SystemExit('--highmem and --memory are mutually exclusive')
     if qemu and memory is not None:
         raise SystemExit('--memory is for phone boards, not --qemu')
-    if highmem and board == 'surya':
-        raise SystemExit('--highmem reuses sweet RAM data; use --memory with Surya DDR values from its live FDT')
     if memory is not None:
         phys_base, mem_size = memory
     elif highmem:

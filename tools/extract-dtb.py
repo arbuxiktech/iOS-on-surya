@@ -13,8 +13,9 @@ Works for boot.img header v0-v2:
 It prints model, qcom,msm-id and qcom,board-id of every blob. ABL picks the blob whose msm-id
 and board-id match the SoC and board; use the same one:
   * --live LIVE.dtb   the phone's running device tree, read in recovery with
-                      `adb pull /sys/firmware/fdt live.dtb` (OrangeFox/TWRP, adb root). The blob
-                      with the same msm-id + board-id (and model, if several match) is selected.
+                      `adb pull /sys/firmware/fdt live.dtb` (OrangeFox/TWRP, adb root). It first
+                      matches msm-id + board-id; if an overlay changed the live board-id, a
+                      unique msm-id base candidate is selected with a warning.
   * --pick N          choose blob N by hand.
 The selected blob is also written as OUTDIR/dtb, the path Enxerto's build.sh expects
 (DTB=../dtb/<board>/dtb). For the Poco F1 the right one is "Beryllium MP v2.1"
@@ -133,16 +134,26 @@ def main():
     if pick is None and a.live:
         lm, lmsm, lboard = describe(open(a.live, 'rb').read())
         print('live: msm-id %s board-id %s model %s' % (' '.join(map(hex, lmsm)), ' '.join(map(hex, lboard)), lm))
-        hits = [i for i, (m, msm, board) in enumerate(descs)
-                if set(zip(lmsm[::2], lmsm[1::2])) & set(zip(msm[::2], msm[1::2])) and board[:2] == lboard[:2]]
+        live_msm = set(zip(lmsm[::2], lmsm[1::2]))
+        msm_hits = [i for i, (_m, msm, _board) in enumerate(descs)
+                    if live_msm & set(zip(msm[::2], msm[1::2]))]
+        hits = [i for i in msm_hits if descs[i][2][:2] == lboard[:2]]
+        board_fallback = False
         if len(hits) > 1:
             hits = [i for i in hits if descs[i][0] == lm] or hits
+        if not hits and len(msm_hits) > 1:
+            hits = [i for i in msm_hits if descs[i][0] == lm]
+        if not hits and len(msm_hits) == 1:
+            hits = msm_hits
+            board_fallback = True
         if hits:
             pick = hits[0]
+            if board_fallback:
+                print('live board-id differs from the unique SoC base candidate; assuming the live FDT includes a board overlay')
             if len(hits) > 1:
                 print('live tree matches %s; using the first (ABL picks the first match), override with --pick' % hits)
         else:
-            print('live tree matches nothing; choose one with --pick')
+            print('live tree matches no unique boot DTB; choose one with --pick')
     if pick is None:
         print('\nno blob selected: rerun with --live LIVE.dtb or --pick N (OUTDIR/rom-N.dtb are written)')
         return
