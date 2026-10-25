@@ -24,7 +24,7 @@ if ($InterfaceIndex -eq 0) {
 }
 
 $adapter = Get-NetAdapter -IncludeHidden -InterfaceIndex $InterfaceIndex -ErrorAction Stop
-if (($adapter.Name + ' ' + $adapter.InterfaceDescription) -notmatch '(?i)USB|Sweet|ECM') {
+if (($adapter.Name + ' ' + $adapter.InterfaceDescription) -notmatch '(?i)USB|Sweet|ECM|Belcarra|USBLAN') {
 	throw "Adapter '$($adapter.Name)' does not look like the Sweet USB Ethernet interface. No changes were made."
 }
 

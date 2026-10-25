@@ -2,7 +2,7 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a43ed7e4c2 100644
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -21,6 +21,18 @@
+@@ -21,6 +21,19 @@
  #include <vm/pmap.h>
  #include <vm/vm_kern.h>
  #include <pexpert/pexpert.h>
@@ -18,10 +18,11 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
 +#include <net/kpi_interface.h>
 +#include <net/kpi_protocol.h>
 +#include <netinet/in.h>
++#include "sweet_board.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  void sweet_usb_probe(void);
-@@ -184,10 +196,25 @@ sweet_usb_probe(void)
+@@ -184,10 +197,25 @@ sweet_usb_probe(void)
  #define UD_EVT_SIZE     0x1000
  #define UD_TRB_OUT      0x1000          /* ep0 OUT TRB */
  #define UD_TRB_IN       0x1010          /* ep0 IN TRB */
@@ -47,7 +48,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  static struct {
  	vm_offset_t dwc;
  	vm_offset_t dma;
-@@ -197,6 +224,15 @@ static struct {
+@@ -197,6 +225,15 @@ static struct {
  	enum { EP0_SETUP, EP0_DATA, EP0_WAIT_STATUS2, EP0_WAIT_STATUS3, EP0_STATUS } state;
  	bool        data_in;        /* data stage direction */
  	uint32_t    events;
@@ -63,7 +64,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  } ud;
  
  static inline void
-@@ -250,11 +286,10 @@ ud_epcmd(unsigned ep, uint32_t cmd, uint32_t p0, uint32_t p1, uint32_t p2)
+@@ -250,11 +287,10 @@ ud_epcmd(unsigned ep, uint32_t cmd, uint32_t p0, uint32_t p1, uint32_t p2)
  	return -1;
  }
  
@@ -77,7 +78,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  	volatile uint32_t *t = (volatile uint32_t *)(ud.dma + trb);
  	uint64_t bpa = ud.dma_pa + buf;
  
-@@ -270,6 +305,12 @@ ud_start(unsigned ep, uint32_t buf, uint32_t len, uint32_t ctl)
+@@ -270,6 +306,12 @@ ud_start(unsigned ep, uint32_t buf, uint32_t len, uint32_t ctl)
  	ud_epcmd(ep, DEPCMD_STARTTRANSFER, (uint32_t)(tpa >> 32), (uint32_t)tpa, 0);
  }
  
@@ -90,7 +91,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  static void
  ud_start_setup(void)
  {
-@@ -284,16 +325,33 @@ ud_stall(void)
+@@ -284,16 +326,34 @@ ud_stall(void)
  	ud_start_setup();
  }
  
@@ -98,7 +99,8 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
 +/*
 + * CDC-ECM (Ethernet) function. The IAD groups control/data interfaces for
 + * Windows composite enumeration; Linux and macOS also bind the ECM function.
-+ * VID 0x1209 / PID 0x0001 is the pid.codes test ID, not a product.
++ * Other boards retain pid.codes VID 0x1209 / PID 0x0001. Surya uses
++ * Belcarra's Windows Update USBLAN evaluation ID (0x15ec:0xd042).
 + */
  static const uint8_t ud_dev_desc[18] = {
 -	18, 1, 0x00, 0x02, 0x00, 0x00, 0x00, 64,
@@ -130,7 +132,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  
  static uint32_t
  ud_string(unsigned idx, uint8_t *out)
-@@ -316,6 +374,45 @@ ud_string(unsigned idx, uint8_t *out)
+@@ -316,6 +376,45 @@ ud_string(unsigned idx, uint8_t *out)
  	return n;
  }
  
@@ -176,7 +178,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  static void
  ud_setup(void)
  {
-@@ -323,13 +420,16 @@ ud_setup(void)
+@@ -323,13 +422,16 @@ ud_setup(void)
  	uint8_t *data = (uint8_t *)(ud.dma + UD_DATA);
  	uint8_t type = st[0], req = st[1];
  	uint16_t value = (uint16_t)(st[2] | st[3] << 8);
@@ -195,7 +197,17 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  		ok = false;
  	} else if (req == 6) {          /* GET_DESCRIPTOR */
  		switch (value >> 8) {
-@@ -343,12 +443,24 @@ ud_setup(void)
+@@ -336,1 +438,8 @@ ud_setup(void)
+-		case 1: memcpy(data, ud_dev_desc, sizeof(ud_dev_desc)); n = sizeof(ud_dev_desc); break;
++		case 1:
++			memcpy(data, ud_dev_desc, sizeof(ud_dev_desc));
++			if (sweet_board_surya()) {
++				/* Belcarra USBLAN Windows Update evaluation binding. */
++				data[8] = 0xec; data[9] = 0x15; /* VID 0x15ec */
++				data[10] = 0x42; data[11] = 0xd0; /* PID 0xd042 */
++			}
++			n = sizeof(ud_dev_desc); break;
+@@ -343,12 +452,24 @@ ud_setup(void)
  		dwc_wr(DCFG, dcfg | ((uint32_t)(value & 0x7f) << 3));
  		printf("SWEET USB: address %u\n", value & 0x7f);
  	} else if (req == 9) {          /* SET_CONFIGURATION */
@@ -221,7 +233,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  	} else {
  		ok = false;
  	}
-@@ -371,6 +483,183 @@ ud_setup(void)
+@@ -371,6 +492,183 @@ ud_setup(void)
  	}
  }
  
@@ -405,7 +417,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  static void
  ud_event(uint32_t ev)
  {
-@@ -395,6 +684,18 @@ ud_event(uint32_t ev)
+@@ -395,6 +693,18 @@ ud_event(uint32_t ev)
  	unsigned ep = (ev >> 1) & 0x1f;
  	unsigned type = (ev >> 6) & 0xf;
  	unsigned status = (ev >> 12) & 0xf;
@@ -424,7 +436,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  	if (ep > 1) {
  		return;
  	}
-@@ -433,6 +734,7 @@ ud_event(uint32_t ev)
+@@ -433,6 +743,7 @@ ud_event(uint32_t ev)
  static void
  ud_thread(void *arg __unused, wait_result_t wr __unused)
  {
@@ -432,7 +444,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  	for (;;) {
  		uint32_t count = dwc_rd(GEVNTCOUNT) & 0xffff;
  		if (count) {
-@@ -440,13 +742,16 @@ ud_thread(void *arg __unused, wait_result_t wr __unused)
+@@ -440,13 +751,16 @@ ud_thread(void *arg __unused, wait_result_t wr __unused)
  			for (uint32_t done = 0; done < count; done += 4) {
  				uint32_t ev = *(volatile uint32_t *)(ud.dma + UD_EVT + ud.evt_pos);
  				ud.evt_pos = (ud.evt_pos + 4) % UD_EVT_SIZE;
@@ -450,7 +462,7 @@ index f300121907b38909eaa2b5009f095371ecfc7a65..c21486a232139c10c4a2aa3bff77d7a4
  		ud_sleep_ms(1);
  	}
  }
-@@ -467,6 +772,7 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+@@ -467,6 +781,7 @@ sweet_usb_gadget_start(vm_offset_t dwc)
  		return;
  	}
  	ud.dma_pa = ptoa_64(pn);
