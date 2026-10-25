@@ -1,24 +1,33 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya stock ROM image analysis (2026-10-25) <<<
+* User supplied the EEA V14.0.5.0.SJGEUXM fastboot ROM under Downloads. Stock `boot.img` is Android header v2; kernel/ramdisk/tags/DTB offsets and 4096-byte page size match Enxerto. Its obsolete OS header field is 11.0.0 / 2023-06, now mirrored in `enxerto/build.sh`.
+* The boot image has 16 FDT candidates. `rom-11.dtb` is generic SDMMAGPIE (`msm-id <0x16d 0>`, board ID `<0 0>`), with no Surya/panel/touch nodes; `rom-12.dtb` is SDMMAGPIEP (`0x16e`). Do not set generic `rom-11.dtb` as Enxerto's device DTB.
+* `dtbo.img` has 32 Qualcomm board overlays. Entry 16 is IDP/SDMMAGPIE (`msm-id <0x16d 0>`, board ID `<0x22 0>`), matching the upstream Surya board ID, and includes both Huaxing/Tianma NT36672C panels and a Novatek touch node. It's a candidate, not confirmed active; the root identifies as generic IDP.
+* Added `tools/extract-dtbo.py`; all 32 extracted overlays are under ignored `dtb/surya/stock-dtbo/`, with boot candidates under ignored `dtb/surya/`. No ROM or extracted blobs are committed.
+* Commit `d13fe16` records the extractor, stock-ROM findings, and the corrected Enxerto boot-header OS metadata. `git diff --cached --check` was clean; no build or test suite was run.
+* Runtime FDT, active `dtbo_idx`, memory map and actual panel remain unverified. No XNU/app build, hardware boot or flash was run.
+* Next: capture `/sys/firmware/fdt` from stock Android with root or recovery, record `ro.boot.dtbo_idx` and `/proc/cmdline`, then validate the active overlay and panel before selecting a device tree.
+
 ### >>> Surya repository-wide source integration (2026-10-25) <<<
 * Current Surya foundation is commit `29d58bd5bee854bfda42d300c1505fcb8a3fd436`; follow-up commit `ad05159` (`Integrate Surya source bring-up across build tools`) extends Enxerto/DTB selection, `mkadt.py --memory`, the legacy XNU 8796 board gate (matching the existing 11215 Surya touch gate), Renegade's full-root boot helper and Bergamota's UI/API.
 * Checked Xiaomi's official `surya-q-oss` at `5e0a8dada006832d3c0511fdc7903c68474cad87`: its QCOM DTS folder has generic Atoll references, but no Surya board DTS or prebuilt DTB. The pinned SM7150 mainline source remains the reproducible reference via `tools/build-surya-dtb.sh`; Huaxing/Tianma outputs are local ignored DTBs, not stock boot trees.
 * The Surya preset enables the inherited PM6150L GPIO2/PM6150 PON key reads and PM6150 voltage-estimated battery reads, while keeping touch, GPU, WLAN/BT and Enxerto charger writes off. Battery percent and USB/key hardware behavior are unverified on this board.
 * `tools/mkadt.py --memory BASE:SIZE` now accepts one explicit contiguous physical range so a live FDT can replace the assumed `0xb0000000..0xfd000000` window. Mainline DTS leaves RAM population to the bootloader; discontiguous banks are not represented yet.
 * Patch files parse with `git apply --stat`; `git diff --check` is clean. No Enxerto/XNU/app build, test suite, hardware boot or flash was run. See `docs/SURYA_PORT.md` for sources, commands and unsupported components.
-* Next: collect a Surya stock boot image/live FDT before attempting any device build or boot. Display/backlight, SPI touch, Adreno 618, Wi-Fi/BT, modem, audio, cameras, sensors and NFC still need device-specific work.
+* Next: collect a Surya live FDT and confirm the active overlay before attempting any device build or boot. Display/backlight, SPI touch, Adreno 618, Wi-Fi/BT, modem, audio, cameras, sensors and NFC still need device-specific work.
 
 ### >>> Surya upstream DTB references (2026-10-25) <<<
 * Fetched SM7150 mainline `v7.2` source at `fd78d17954a86ea6ceb0c535e618ea129e09f8dd`; compiled `sm7150-xiaomi-surya-huaxing.dts` and `...-tianma.dts` with `cpp` and `dtc` 1.7.0. Outputs are `dtb/surya/surya-huaxing.dtb` (96,426 bytes, SHA-256 `a43d069d0a49adcd3c6ba5e589940c91677c24f5a152d161ce1d1a5b6eb7a0dc`) and `dtb/surya/surya-tianma.dtb` (96,418 bytes, SHA-256 `c7c7462fb7b12e9a5e9c4820f8368b376dc5d0c3fde787c75e0cd54e39b7cbbb`). `dtc` parsed each generated blob and showed its expected Huaxing/Tianma model string. Upstream DTS warnings were emitted; no fatal compiler errors.
 * Artifacts are ignored by git. They are Linux mainline references, not stock Xiaomi boot DTBs. The phone's panel variant, ABL acceptance and live memory/board data remain unverified. No Enxerto image was built and nothing was booted or flashed. Use the phone's exact stock DTB for boot-image packaging.
-* `docs/SURYA_PORT.md` records source links, IDs and artifact hashes. Next: obtain the phone's stock boot image/live FDT and match its display panel before selecting any DTB for hardware use.
+* `docs/SURYA_PORT.md` records source links, IDs and artifact hashes. The stock ROM is now available; next capture its live FDT and confirm the selected DTBO/panel before hardware use.
 
 ### >>> Surya source-level bring-up profile (2026-10-25) <<<
 * Commit `29d58bd5bee854bfda42d300c1505fcb8a3fd436` adds Surya (`surya`, Poco X3 NFC) profiles to Enxerto, `tools/mkadt.py`, XNU board detection/touch gating, and Bergamota's Build pane and file-based builder; details and commands are in `docs/SURYA_PORT.md`.
-* Upstream basis: SM7150 Xiaomi DTS v7.2 (1080x2400 framebuffer at `0x9c000000`, separate ramoops at `0x9d800000`, PM6150/PM6150L, Novatek `nt36xxx` SPI touch) and AOSP Android 10 boot header v2. The generated low memory range `0xb0000000..0xfd000000`, Enxerto offsets and OS patch-level field are assumptions pending the stock boot image/live FDT.
+* Upstream basis: SM7150 Xiaomi DTS v7.2 (1080x2400 framebuffer at `0x9c000000`, separate ramoops at `0x9d800000`, PM6150/PM6150L, Novatek `nt36xxx` SPI touch) and AOSP Android 10 boot header v2. Stock ROM inspection confirms Enxerto's header/load offsets and encoded `11.0.0` / `2023-06` metadata; the low-memory range `0xb0000000..0xfd000000` remains an assumption pending live FDT.
 * Surya charger writes/off-mode screen are disabled; the app preset uses one CPU, leaves kernel console visible, enables the inherited SM7150 USB path, volume keys and read-only voltage-estimated battery path, and disables touch/GPU/WLAN/BT paths. Patch 0251 skips the incompatible legacy I2C touch path.
-* No Surya boot image or live FDT was supplied (user asked to proceed from upstream sources). No build, compile, test, hardware boot or flash was performed. The XNU patch series and app changes remain uncompiled; this is a bring-up scaffold, not a complete or boot-verified port.
-* Next: collect the stock `boot.img` and live `/sys/firmware/fdt`; verify header offsets, board IDs, memory and panel; then build and validate one stage at a time. Remaining driver work includes display/backlight, SPI touch, PMIC battery/charger, Adreno 618, WLAN/BT, modem, audio, camera, sensors and NFC, plus Surya partition/root integration.
+* At this earlier milestone no Surya boot image or live FDT had been supplied; the stock ROM was later provided and inspected. No build, compile, hardware boot or flash was performed. The XNU patch series and app changes remain uncompiled; this is a bring-up scaffold, not a complete or boot-verified port.
+* Next: collect the live `/sys/firmware/fdt`; verify the active DTBO entry, memory and panel; then build and validate one stage at a time. Remaining driver work includes display/backlight, SPI touch, PMIC battery/charger, Adreno 618, WLAN/BT, modem, audio, camera, sensors and NFC, plus Surya partition/root integration.
 
 ## Agent handoff / active work (2026-10-15, latest)
 
