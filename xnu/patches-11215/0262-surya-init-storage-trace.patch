@@ -1,0 +1,401 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 0f0fab3..b82c31e 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -673,6 +673,22 @@ sweet_ufs_close(__unused dev_t dev, __unused int flags, __unused int devtype, __
+ 	return 0;
+ }
+ 
++
++/* Read-only diagnostics: never trace logger writes back into the logger. */
++extern int sweet_init_trace_enabled(void);
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_ufs_init_trace(const char *stage, uint64_t off, uint32_t count, int result)
++{
++	char label[96];
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "UFS %s off=0x%llx n=%u", stage,
++	    (unsigned long long)off, count);
++	sweet_init_exec_trace(label, result);
++}
++
+ static void
+ sweet_ufs_strategy(buf_t bp)
+ {
+@@ -686,6 +702,7 @@ sweet_ufs_strategy(buf_t bp)
+ 	bool fua = !rd && (su.fua >= 1) && (buf_flags(bp) & B_FUA);
+ 
+ 	if (rd) {
++		sweet_ufs_init_trace("request", off, count, 0);
+ 		ss.strat_reads++;
+ 	} else {
+ 		ss.strat_writes++;
+@@ -702,12 +719,15 @@ sweet_ufs_strategy(buf_t bp)
+ 	if (count == 0) {
+ 		goto done;
+ 	}
++	if (rd) sweet_ufs_init_trace("map begin", off, count, 0);
+ 	if (buf_map(bp, &vaddr)) {
+ 		error = EIO;
+ 		goto done;
+ 	}
+ 
++	if (rd) sweet_ufs_init_trace("lock begin", off, count, 0);
+ 	lck_mtx_lock(&sweet_ufs_lock);
++	if (rd) sweet_ufs_init_trace("lock acquired", off, count, 0);
+ 	for (uint32_t done = 0; done < count;) {
+ 		uint64_t pos = off + done;
+ 		uint64_t lba = pos / UFS_BLOCK;
+@@ -716,7 +736,9 @@ sweet_ufs_strategy(buf_t bp)
+ 		uint32_t blocks = (skip + want + UFS_BLOCK - 1) / UFS_BLOCK;
+ 		void *bounce = (void *)(su.dma + DMA_BOUNCE);
+ 		if (rd) {
++			sweet_ufs_init_trace("read begin", lba * UFS_BLOCK, blocks * UFS_BLOCK, 0);
+ 			error = ufs_read_blocks(su.first_block + lba, blocks);
++			sweet_ufs_init_trace("read done", lba * UFS_BLOCK, blocks * UFS_BLOCK, error);
+ 			if (!error) {
+ 				memcpy(vaddr + done, (const char *)bounce + skip, want);
+ 			}
+@@ -738,6 +760,16 @@ sweet_ufs_strategy(buf_t bp)
+ 		buf_setresid(bp, count - done);
+ 	}
+ 	lck_mtx_unlock(&sweet_ufs_lock);
++	if (rd && !error && sweet_init_trace_enabled()) {
++		uint32_t hash = 2166136261U;
++		char label[96];
++		for (uint32_t i = 0; i < MIN(count, 4096U); i++) {
++			hash = (hash ^ (uint8_t)vaddr[i]) * 16777619U;
++		}
++		snprintf(label, sizeof(label), "UFS data off=0x%llx n=%u fnv=%08x",
++		    (unsigned long long)off, count, hash);
++		sweet_init_exec_trace(label, 0);
++	}
+ 	buf_unmap(bp);
+ 
+ done:
+@@ -749,6 +781,7 @@ done:
+ 			    rd ? "read" : "write", (long long)buf_blkno(bp), count, error, buf_resid(bp));
+ 		}
+ 	}
++	if (rd) sweet_ufs_init_trace("complete", off, count, error);
+ 	buf_biodone(bp);
+ }
+ 
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index eb46148..af983ed 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -194,23 +194,30 @@ void sweet_exec_delay(const char *leaf);
+ /* Opt-in PID 1 exec checkpoints for Surya bring-up; no change to exec policy.
+  * Keep output bounded if launchd subsequently spawns many children. */
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
++int sweet_init_trace_enabled(void);
+ void sweet_init_exec_trace(const char *stage, int result);
+ 
+-void
+-sweet_init_exec_trace(const char *stage, int result)
++int
++sweet_init_trace_enabled(void)
+ {
+ 	static int enabled = -1;
+-	static unsigned int sequence;
+ 
+ 	if (proc_getpid(current_proc()) != 1) {
+-		return;
++		return 0;
+ 	}
+ 	if (enabled < 0) {
+ 		int on = 0;
+ 		PE_parse_boot_argn("sweetinittrace", &on, sizeof(on));
+ 		enabled = on != 0;
+ 	}
+-	if (enabled && sequence < 256) {
++	return enabled;
++}
++
++void
++sweet_init_exec_trace(const char *stage, int result)
++{
++	static unsigned int sequence;
++	if (sweet_init_trace_enabled() && sequence < 512) {
+ 		printf("INIT %u: %s rc=%d\n", ++sequence, stage, result);
+ 	}
+ }
+diff --git a/bsd/sweet_hfs/core/BTree.c b/bsd/sweet_hfs/core/BTree.c
+index a305ee5..d212fbd 100644
+--- a/bsd/sweet_hfs/core/BTree.c
++++ b/bsd/sweet_hfs/core/BTree.c
+@@ -151,6 +151,25 @@
+ */
+ 
+ #include "BTreesPrivate.h"
++
++/* Opt-in PID 1 storage checkpoints; bounded by the shared exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern int sweet_init_trace_enabled(void);
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_storage_trace(const char *stage, unsigned long long value, int result)
++{
++	char label[96];
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "%s 0x%llx", stage, value);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_STORAGE(stage, value, result) sweet_storage_trace(stage, value, result)
++#else
++#define SWEET_STORAGE(stage, value, result) ((void)0)
++#endif
+ #include "hfs_btreeio.h"
+ 
+ //////////////////////////////////// Globals ////////////////////////////////////
+@@ -493,13 +512,17 @@ OSStatus	BTSearchRecord		(FCB						*filePtr,
+ 	{
+ 		nodeNum = searchIterator->hint.nodeNum;
+ 		
++		SWEET_STORAGE("BT hint read begin", nodeNum, 0);
+ 		err = GetNode (btreePtr, nodeNum, kGetNodeHint, &node);
++		SWEET_STORAGE("BT hint read done", nodeNum, err);
+ 		if( err == noErr )
+ 		{
+ 			if ( ((BTNodeDescriptor*) node.buffer)->kind == kBTLeafNode &&
+ 				 ((BTNodeDescriptor*) node.buffer)->numRecords	>  0 )
+ 			{
++				SWEET_STORAGE("BT hint search begin", nodeNum, 0);
+ 				foundRecord = SearchNode (btreePtr, node.buffer, &searchIterator->key, &index);
++				SWEET_STORAGE("BT hint search done", nodeNum, foundRecord);
+ 
+ 				//€€ if !foundRecord, we could still skip tree search if ( 0 < index < numRecords )
+ 			}
+@@ -524,7 +547,9 @@ OSStatus	BTSearchRecord		(FCB						*filePtr,
+ 
+ 	if (foundRecord == false)
+ 	{
++		SWEET_STORAGE("BT tree search begin", btreePtr->rootNode, 0);
+ 		err = SearchTree ( btreePtr, &searchIterator->key, treePathTable, &nodeNum, &node, &index);
++		SWEET_STORAGE("BT tree search done", btreePtr->rootNode, err);
+ 		switch (err)
+ 		{
+ 			case noErr:			
+diff --git a/bsd/sweet_hfs/core/BTreeTreeOps.c b/bsd/sweet_hfs/core/BTreeTreeOps.c
+index 74cd04e..6675727 100644
+--- a/bsd/sweet_hfs/core/BTreeTreeOps.c
++++ b/bsd/sweet_hfs/core/BTreeTreeOps.c
+@@ -95,6 +95,25 @@
+ */
+ 
+ #include "BTreesPrivate.h"
++
++/* Opt-in PID 1 storage checkpoints; bounded by the shared exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern int sweet_init_trace_enabled(void);
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_storage_trace(const char *stage, unsigned long long value, int result)
++{
++	char label[96];
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "%s 0x%llx", stage, value);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_STORAGE(stage, value, result) sweet_storage_trace(stage, value, result)
++#else
++#define SWEET_STORAGE(stage, value, result) ((void)0)
++#endif
+ #include "hfs_btreeio.h"
+ 
+ //
+@@ -240,7 +259,9 @@ OSStatus	SearchTree	(BTreeControlBlockPtr	 btreePtr,
+             goto ErrorExit;
+         }
+         
++        SWEET_STORAGE("BT node read begin", curNodeNum, 0);
+         err = GetNode (btreePtr, curNodeNum, 0, &nodeRec);
++        SWEET_STORAGE("BT node read done", curNodeNum, err);
+         if (err != noErr)
+         {
+                 goto ErrorExit;
+@@ -280,7 +301,9 @@ OSStatus	SearchTree	(BTreeControlBlockPtr	 btreePtr,
+             }
+         }
+         
++        SWEET_STORAGE("BT node search begin", curNodeNum, 0);
+         keyFound = SearchNode (btreePtr, nodeRec.buffer, searchKey, &index);
++        SWEET_STORAGE("BT node search done", curNodeNum, keyFound);
+ 
+         treePathTable [level].node		= curNodeNum;
+ 
+@@ -310,7 +333,9 @@ OSStatus	SearchTree	(BTreeControlBlockPtr	 btreePtr,
+         //	Get the child pointer out of this index node.  We're now done with the current
+         //	node and can continue the search with the child node.
+         curNodeNum = *(u_int32_t *)dataPtr;
++        SWEET_STORAGE("BT node release begin", curNodeNum, 0);
+         err = ReleaseNode (btreePtr, &nodeRec);
++        SWEET_STORAGE("BT node release done", curNodeNum, err);
+         if (err != noErr)
+         {
+                 goto ErrorExit;
+diff --git a/bsd/sweet_hfs/core/FileExtentMapping.c b/bsd/sweet_hfs/core/FileExtentMapping.c
+index 4401f14..80f7500 100644
+--- a/bsd/sweet_hfs/core/FileExtentMapping.c
++++ b/bsd/sweet_hfs/core/FileExtentMapping.c
+@@ -35,6 +35,25 @@
+ #include "BTreesInternal.h"
+ 
+ #include <sys/malloc.h>
++
++/* Opt-in PID 1 storage checkpoints; bounded by the shared exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern int sweet_init_trace_enabled(void);
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_storage_trace(const char *stage, unsigned long long value, int result)
++{
++	char label[96];
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "%s 0x%llx", stage, value);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_STORAGE(stage, value, result) sweet_storage_trace(stage, value, result)
++#else
++#define SWEET_STORAGE(stage, value, result) ((void)0)
++#endif
+  
+ /*
+ ============================================================
+@@ -390,7 +409,9 @@ OSErr MapFileBlockC (
+ 	allocBlockSize = vcb->blockSize;
+ 	sectorSize = VCBTOHFS(vcb)->hfs_logical_block_size;
+ 
++	SWEET_STORAGE("HFS extent search offset begin", offset, 0);
+ 	err = SearchExtentFile(vcb, fcb, offset, &foundKey, foundData, &foundIndex, &hint, &nextFABN);
++	SWEET_STORAGE("HFS extent search offset done", offset, err);
+ 	if (err == noErr) {
+ 		startBlock = foundData[foundIndex].startBlock;
+ 		firstFABN = nextFABN - foundData[foundIndex].blockCount;
+diff --git a/bsd/sweet_hfs/core/hfs_btreeio.c b/bsd/sweet_hfs/core/hfs_btreeio.c
+index d307e00..58a56f0 100644
+--- a/bsd/sweet_hfs/core/hfs_btreeio.c
++++ b/bsd/sweet_hfs/core/hfs_btreeio.c
+@@ -44,6 +44,25 @@
+ #include "FileMgrInternal.h"
+ #include "BTreesPrivate.h"
+ 
++/* Opt-in PID 1 storage checkpoints; bounded by the shared exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern int sweet_init_trace_enabled(void);
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_storage_trace(const char *stage, unsigned long long value, int result)
++{
++	char label[96];
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "%s 0x%llx", stage, value);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_STORAGE(stage, value, result) sweet_storage_trace(stage, value, result)
++#else
++#define SWEET_STORAGE(stage, value, result) ((void)0)
++#endif
++
+ /* From bsd/vfs/vfs_bio.c */
+ extern int bdwrite_internal(struct buf *, int);
+ 
+@@ -120,7 +139,9 @@ OSStatus GetBTreeBlock(FileReference vp, u_int32_t blockNum, GetBlockOptions opt
+             buf_setblkno(bp, blkno);
+         }
+     } else {
++        SWEET_STORAGE("BT buffer read begin", blockNum, 0);
+         retval = buf_meta_bread(vp, (daddr64_t)blockNum, block->blockSize, NOCRED, &bp);
++        SWEET_STORAGE("BT buffer read done", blockNum, retval);
+     }
+     if (bp == NULL)
+         retval = -1;	//XXX need better error
+@@ -208,6 +229,7 @@ OSStatus GetBTreeBlock(FileReference vp, u_int32_t blockNum, GetBlockOptions opt
+         block->buffer = NULL;
+     }
+ 
++    SWEET_STORAGE("BT buffer ready", blockNum, retval);
+     return (retval);
+ }
+ 
+diff --git a/bsd/sweet_hfs/core/hfs_catalog.c b/bsd/sweet_hfs/core/hfs_catalog.c
+index 47ee835..f1abbba 100644
+--- a/bsd/sweet_hfs/core/hfs_catalog.c
++++ b/bsd/sweet_hfs/core/hfs_catalog.c
+@@ -45,6 +45,25 @@
+ 
+ #include "BTreesInternal.h"
+ #include "BTreesPrivate.h"
++
++/* Opt-in PID 1 storage checkpoints; bounded by the shared exec trace. */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++extern int sweet_init_trace_enabled(void);
++extern void sweet_init_exec_trace(const char *stage, int result);
++static void
++sweet_storage_trace(const char *stage, unsigned long long value, int result)
++{
++	char label[96];
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "%s 0x%llx", stage, value);
++	sweet_init_exec_trace(label, result);
++}
++#define SWEET_STORAGE(stage, value, result) sweet_storage_trace(stage, value, result)
++#else
++#define SWEET_STORAGE(stage, value, result) ((void)0)
++#endif
+ #include "HFSUnicodeWrappers.h"
+ 
+ 
+@@ -480,13 +499,19 @@ cat_lookup(struct hfsmount *hfsmp, struct cat_desc *descp, int wantrsrc, int for
+ 
+ 	flags = force_casesensitive_lookup ? HFS_LOOKUP_CASESENSITIVE : 0;
+ 
++	SWEET_STORAGE("CAT key allocation begin", 0, 0);
+ 	keyp = hfs_malloc_type(CatalogKey);
++	SWEET_STORAGE("CAT key allocation done", 0, 0);
+ 
++	SWEET_STORAGE("CAT buildkey begin", 0, 0);
+ 	result = buildkey(hfsmp, descp, (HFSPlusCatalogKey *)keyp, 1);
++	SWEET_STORAGE("CAT buildkey done", 0, result);
+ 	if (result)
+ 		goto exit;
+ 
++	SWEET_STORAGE("CAT lookupbykey begin", 0, 0);
+ 	result = cat_lookupbykey(hfsmp, keyp, flags, descp->cd_hint, wantrsrc, outdescp, attrp, forkp, desc_cnid);
++	SWEET_STORAGE("CAT lookupbykey done", 0, result);
+ 	
+ 	if (result == ENOENT) {
+ 		struct cat_desc temp_desc;
+@@ -791,14 +816,18 @@ cat_lookupbykey(struct hfsmount *hfsmp, CatalogKey *keyp, int flags, u_int32_t h
+ 	cnid_t parentid = 0;
+ 	bool hfs_extime = false;
+ 
++	SWEET_STORAGE("CAT record allocation begin", hint, 0);
+ 	recp = hfs_malloc_type(CatalogRecord);
+ 	BDINIT(btdata, recp);
+ 	iterator = hfs_malloc_type(struct BTreeIterator);
++	SWEET_STORAGE("CAT record allocation done", hint, 0);
+ 	iterator->hint.nodeNum = hint;
+ 	bcopy(keyp, &iterator->key, sizeof(CatalogKey));
+ 
++	SWEET_STORAGE("CAT BTSearchRecord begin", hint, 0);
+ 	result = BTSearchRecord(VTOF(HFSTOVCB(hfsmp)->catalogRefNum), iterator,
+ 				&btdata, &datasize, iterator);
++	SWEET_STORAGE("CAT BTSearchRecord done", hint, result);
+ 	if (result) 
+ 		goto exit;
+ 
