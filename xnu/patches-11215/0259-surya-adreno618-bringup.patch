@@ -1,7 +1,7 @@
 diff --git a/bsd/dev/sweet_surya_gpu.c b/bsd/dev/sweet_surya_gpu.c
 --- a/bsd/dev/sweet_surya_gpu.c
 +++ b/bsd/dev/sweet_surya_gpu.c
-@@ -1,159 +1,2188 @@
+@@ -1,159 +1,2191 @@
  /*
 - * Surya (Poco X3 NFC, SM7150): read-only Adreno 618 state probe.
 + * Surya (Poco X3 NFC, SM7150): staged Adreno 618 bring-up, off by default.
@@ -197,6 +197,9 @@ diff --git a/bsd/dev/sweet_surya_gpu.c b/bsd/dev/sweet_surya_gpu.c
 +
 +/* First A618 GPU-core status register used by the gated read-only report. */
 +#define A6XX_RBBM_STATUS        0x0210
++#define A6XX_CP_SQE_INSTR_BASE  0x0830
++#define A6XX_CP_ALWAYS_ON_COUNTER 0x0980
++#define SURYA_GMU_CHIPID        0x06010800u /* SM7150 Adreno 618 chip ID */
 +
 +/* ------------------------------------------------------------------ */
 +/* Global state and helpers                                            */
