@@ -511,6 +511,15 @@ def stage_jb(a, root):
     spec.loader.exec_module(rt)
     n = rt.jailbreak_userland(root, JB_OWNERS, force=True)
     log(f'jailbreak userland: {n} paths staged into the image (/private/var/jb), owners in {JB_OWNERS}')
+    # The following tweaks stage installs the first-boot job, which uses /bin/sh.
+    # The stock iOS root has no shell, so provide one from the staged Procursus dash.
+    sh = os.path.join(root, 'bin/sh')
+    if not os.path.exists(sh):
+        if os.path.lexists(sh):
+            os.unlink(sh)
+        # Relative target keeps build-host checks inside the mounted image.
+        os.symlink('../var/jb/usr/bin/dash', sh)
+        log('installed /bin/sh -> ../var/jb/usr/bin/dash')
 
 
 def patch_mount_phase2(root):
@@ -811,7 +820,10 @@ def main():
     if (os.environ.get('RENEGADE_NO_JB') != '1' and os.environ.get('RENEGADE_JB') != '0' and 'jb' not in a.stages.split(',')
             and ('tweaks' in a.stages.split(',') or os.environ.get('RENEGADE_JB') == '1')):
         st = a.stages.split(',')
-        a.stages = ','.join(st[:st.index('seal')] + ['jb'] + st[st.index('seal'):]) if 'seal' in st else a.stages + ',jb'
+        # Procursus supplies dash for the first-boot job, so stage it before tweaks.
+        insert_at = st.index('tweaks') if 'tweaks' in st else (st.index('seal') if 'seal' in st else len(st))
+        st.insert(insert_at, 'jb')
+        a.stages = ','.join(st)
     stages = a.stages.split(',')
     dmgs = find_dmgs(a.ipsw_dir)
     if rplat.backend().dry:
