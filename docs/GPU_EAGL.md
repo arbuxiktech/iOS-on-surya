@@ -1,7 +1,21 @@
 # GPU_EAGL: replacement OpenGLES.framework over Mesa (phases A + B of `METAL_ADRENO630.md`; phase E software side at the end)
 
-Status 2026-10-23, branch `gpu-eagl`. Everything below marked **[phone]** was run on the Poco F1 (iOS 18.7.8 22H352 on Heartwood xnu-11215) with the test tool only;
-the system OpenGLES.framework was not touched and nothing runs inside backboardd yet.
+Status 2026-10-23, branch `gpu-eagl`. Hardware results in this document are for the Poco F1 (iOS 18.7.8 22H352 on Heartwood xnu-11215); later dated sections record the EAGL renderer and backboardd milestones. Surya has separate userspace/kernel status below and is not hardware-verified.
+
+## Surya userspace target (2026-10-25)
+
+The libdrm stand-in now probes both `SweetAdreno630` and the planned `SweetAdreno618` IOKit service. It opens only an ABI-1 service that reports ready and GPU ID 618 or 630; `SWEET_GPU_SERVICE=NAME` can pin the choice. Mesa's Freedreno screen selection remains runtime-driven, and the OSMesa target falls back to softpipe when no usable service exists.
+
+This prepares the userspace binaries for Surya, but the current Surya XNU path (patch 0259) stops before command submission and publishes no GPU user client. So the expected result on today's Surya kernel is software rendering; the hardware Mesa path cannot start yet. The Poco F1's A630 behavior and test results below are unchanged.
+
+Build a native arm64 payload for the Surya/iOS 18 target in a separate scratch directory:
+
+```sh
+ARCH=arm64 IOS_MIN_VERSION=18.0 GPU_EAGL_WORK=/path/to/surya-eagl gpu/eagl/mesa/build-mesa.sh
+ARCH=arm64 IOS_MIN_VERSION=18.0 GPU_EAGL_WORK=/path/to/surya-eagl MESA_BLD=/path/to/surya-eagl/build-hw gpu/eagl/make-payload.sh research/surya-gles
+```
+
+This produces the EAGL bridge, Mesa with Freedreno and softpipe, the libdrm stand-in, and the fail-safe backboardd launcher. The output payload is not installed by these commands. A real A618 userland render still needs the matching XNU IOKit user client, CP submission, buffers, fences, IOSurface import and cache-sync behavior.
 
 ## What this is
 

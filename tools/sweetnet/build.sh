@@ -6,11 +6,12 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 out=$here/../../research/sweetnet
 mkdir -p "$out"
-for t in ${TOOLS:-sweetnetcfg cscheck hcitest bluetool-stub sweetreboot sweetdur}; do
+for t in ${TOOLS:-sweetnetcfg cscheck hcitest bluetool-stub sweetreboot sweetdur sweettouch}; do
 	ents=$here/entitlements.plist
 	case $t in
 	cscheck) frameworks="-framework CoreFoundation -framework Security" ;;
 	hcitest|sweetreboot|sweetdur) frameworks="" ;;
+	sweettouch) frameworks="-framework CoreFoundation -framework IOKit"; ents=$here/touch.entitlements ;;
 	bluetool-stub) frameworks=""; ents=$here/bluetool.entitlements ;;
 	*) frameworks="-framework CoreFoundation" ;;
 	esac

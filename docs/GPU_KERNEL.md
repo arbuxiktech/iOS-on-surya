@@ -24,7 +24,7 @@ Patches in `xnu/patches-11215/`, applied after 0103/0170 (the stage-1..7 bring-u
 | `0215-beryllium-fb-gpu-copy-invalidate` | `SweetFramebuffer.cpp` | The copy path invalidates a pool surface the GPU wrote (announced by BO_SYNC) before the CPU reads it: `docs/DISPLAY_HW.md` 5.4. |
 | `0182-beryllium-gpu-adreno-iokit-user-client` | `iokit/Kernel/arm/SweetAdreno.cpp`, `SweetAdrenoABI.h`, `iokit/conf/files.arm64` | IOService `SweetAdreno630` (published by `sweet_a630.c` after keep-up) and its user client with the msm ioctls as selectors. |
 
-`xnu/gpu-abi/sweet_adreno_abi.h` is the userland-facing copy of the ABI header (byte-identical to `SweetAdrenoABI.h` of 0182).
+`xnu/gpu-abi/sweet_adreno_abi.h` is the userland-facing ABI header. Its selector and structure definitions match `SweetAdrenoABI.h` from 0182; the userland copy additionally names the planned Surya service for discovery.
 `tools/gpu-fw-push.sh` copies the firmware over SSH.
 
 What already existed and is reused unchanged (0103, `GPU_A630_BRINGUP.md`): CX GDSC + GMU clocks, RSC/PDC microcode, GMU firmware boot, GPU SMMU

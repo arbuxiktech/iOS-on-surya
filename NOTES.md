@@ -1,5 +1,11 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> Surya GPU/touch userland preparation (2026-10-25) <<<
+* Generalized the Mesa/libdrm stand-in discovery to select a ready ABI-1 A618 or A630 service (`SweetAdreno618` / `SweetAdreno630`) and reject unrelated/not-ready services. The Surya service is only a planned userspace contract: current XNU patch 0259 has no IOKit GPU user client, CP command submission, or rendering; Mesa uses its softpipe fallback on this kernel.
+* Made Mesa, the EAGL bridge, libdrm and payload scripts configurable for native `arm64` builds and iOS minimum version. `docs/GPU_EAGL.md` has a Surya payload command. Payload generation/build was not run here (this host is Windows and the build requires Xcode/macOS).
+* Added `sweettouch --size WxH`; the Surya default ADT geometry is `360x800` points. The iOS 16 sweetnet build now includes the helper; physical Surya touch still depends on the XNU SPI reports reaching the existing `SweetHIDTouch` IOHID service.
+* No build, hardware boot, GPU submission, or physical/synthetic touch test was performed. This is userland source preparation only; GPU acceleration and physical touch remain unverified on Surya.
+
 ### >>> Surya Adreno 618 and Novatek touch bring-up sources (2026-10-25, latest) <<<
 * Added XNU patch `0259-surya-adreno618-bringup.patch`, upgrading 0257's read-only probe to opt-in stages 1–6: state probe; CX/GMU clocks, SMMU and TCM inspection; stock GMU boot; GMU SMMU/HFI; GX at the common 180 MHz MIN_SVS OPP; and signed `a615_zap` PAS authentication. Surya values include GMU `0x0506a000` size `0x31000`, PDC `0x0b290000`/`0x0b490000`, GCC DDRSS GPU AXI `0x4452c`, HFI chip ID `0x06018000`, GMU firmware 1.8, no-command HFI bandwidth votes, and the live-FDT ZAP carveout `0x97715000`/`0x2000`. The SM7150 cmd-db is `0x85f20000`; do not inherit Beryllium's `0x85fe0000` address.
 * The GPU path is source-only and stays off unless `sweetgpu` is set. Stages above 6 are refused. CP command submission and Metal/CoreAnimation rendering are not implemented; no XNU build or Surya GPU boot was performed.

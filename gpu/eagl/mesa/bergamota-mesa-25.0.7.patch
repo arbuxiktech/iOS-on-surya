@@ -524,7 +524,7 @@ index 25985dd..f7d01b1 100644
     struct sw_winsys *winsys;
     struct pipe_screen *screen;
  
-+   /* Bergamota: freedreno on the Adreno 630 when SweetAdreno630 is present and SWEET_GPU is not 0 */
++   /* Bergamota: freedreno when a supported Sweet Adreno service is present and SWEET_GPU is not 0 */
 +   screen = sweet_hw_create_screen ? sweet_hw_create_screen() : NULL;
 +   if (screen)
 +      return debug_screen_wrap(screen);
@@ -540,10 +540,10 @@ index 0000000..276b496
 @@ -0,0 +1,440 @@
 +/*
 + * SPDX-License-Identifier: MIT
-+ * Bergamota: hardware (freedreno / Adreno 630) pipe_screen for the OSMesa target, over the libdrm stand-in
-+ * (gpu/freedreno-sweet) and the SweetAdreno630 IOKit service, plus IOSurface-backed render targets.
++ * Bergamota: hardware (freedreno / Adreno 6xx) pipe_screen for the OSMesa target, over the libdrm stand-in
++ * (gpu/freedreno-sweet) and the SweetAdreno IOKit service, plus IOSurface-backed render targets.
 + *
-+ *   SWEET_GPU=0       force softpipe          SWEET_GPU=1 (default)  freedreno when SweetAdreno630 is there, else softpipe
++ *   SWEET_GPU=0       force softpipe          SWEET_GPU=1 (default)  freedreno when a supported service is there, else softpipe
 + */
 +#include <stdlib.h>
 +#include <string.h>
@@ -621,7 +621,7 @@ index 0000000..276b496
 +      return NULL;
 +   g_fd = drmOpenWithType("msm", NULL, 0);
 +   if (g_fd < 0) {
-+      fprintf(stderr, "OSMesa/sweet: no SweetAdreno630 (drmOpen failed), using softpipe\n");
++      fprintf(stderr, "OSMesa/sweet: no supported Sweet Adreno service (drmOpen failed), using softpipe\n");
 +      return NULL;
 +   }
 +   driParseOptionInfo(&info, sweet_driconf, ARRAY_SIZE(sweet_driconf));

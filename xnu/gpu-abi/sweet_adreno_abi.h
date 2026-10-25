@@ -1,10 +1,12 @@
 /*
- * SweetAdreno630: IOKit ABI of the Heartwood Adreno 630 kernel driver (Poco F1).
+ * SweetAdreno: IOKit ABI used by the Sweet-family Adreno userland bridge.
  *
  * This file is the contract between the kernel (iokit/Kernel/arm/SweetAdreno.cpp,
- * the same bytes are installed there as SweetAdrenoABI.h by xnu/patches-11215/0182)
- * and the userland winsys (Mesa freedreno/msm backend, EAGL bridge). Human-readable
- * description, call sequences and error codes: docs/GPU_KERNEL.md. Keep both in sync.
+ * whose selector/structure ABI is installed as SweetAdrenoABI.h by patch 0182)
+ * and the userland winsys (Mesa freedreno/msm backend, EAGL bridge). The service
+ * name aliases below are userland discovery hints, not part of the kernel copy.
+ * Human-readable description, call sequences and error codes:
+ * docs/GPU_KERNEL.md. Keep the ABI structures and selectors in sync.
  *
  * The requests are those of the Linux msm DRM driver (include/uapi/drm/msm_drm.h:
  * request numbers = DRM_COMMAND_BASE (0x40) + DRM_MSM_*, structure layouts), so that a
@@ -21,8 +23,12 @@
 
 #include <stdint.h>
 
-/* IOServiceMatching() name of the service; IOServiceOpen(type 0) gives the connection. */
-#define SWEET_GPU_SERVICE_NAME          "SweetAdreno630"
+/* IOServiceMatching() names; IOServiceOpen(type 0) gives the connection.
+ * Surya userland also probes the planned 618 name. Its XNU user client is not
+ * implemented yet; the 630 name remains the compatibility default. */
+#define SWEET_GPU_SERVICE_NAME_A630     "SweetAdreno630"
+#define SWEET_GPU_SERVICE_NAME_A618     "SweetAdreno618"
+#define SWEET_GPU_SERVICE_NAME          SWEET_GPU_SERVICE_NAME_A630
 #define SWEET_GPU_ABI_VERSION           1
 
 /* Selectors of IOConnectCallStructMethod. */
@@ -161,8 +167,8 @@ struct sweet_gem_close {
 struct sweet_gpu_info {
 	uint32_t abi_version;   /* SWEET_GPU_ABI_VERSION */
 	uint32_t flags;         /* bit0 ready, bit1 lost (a submission never completed: reboot needed) */
-	uint32_t gpu_id;        /* 630 */
-	uint32_t chip_id;       /* 0x06030001 */
+	uint32_t gpu_id;        /* hardware ID (618 or 630 in the current userland adapter) */
+	uint32_t chip_id;       /* hardware-specific chip ID */
 	uint64_t va_start;      /* GPU address range the kernel places BOs in */
 	uint64_t va_size;
 	uint32_t last_fence;    /* last submitted sequence number */
@@ -251,10 +257,10 @@ struct sweet_gpu_debug {
 
 #define SWEET_MSM_PIPE_3D0              0x10
 
-#define SWEET_MSM_PARAM_GPU_ID          0x01    /* 630 */
+#define SWEET_MSM_PARAM_GPU_ID          0x01    /* hardware-specific ID */
 #define SWEET_MSM_PARAM_GMEM_SIZE       0x02    /* 0x100000 */
-#define SWEET_MSM_PARAM_CHIP_ID         0x03    /* 0x06030001 */
-#define SWEET_MSM_PARAM_MAX_FREQ        0x04    /* 710000000 (the GPU runs at 257 MHz until DCVS is implemented) */
+#define SWEET_MSM_PARAM_CHIP_ID         0x03    /* hardware-specific chip ID */
+#define SWEET_MSM_PARAM_MAX_FREQ        0x04    /* hardware-specific maximum in Hz */
 #define SWEET_MSM_PARAM_TIMESTAMP       0x05    /* CP_ALWAYS_ON_COUNTER, 19.2 MHz */
 #define SWEET_MSM_PARAM_GMEM_BASE       0x06    /* 0x100000 */
 #define SWEET_MSM_PARAM_PRIORITIES      0x07    /* 1 */

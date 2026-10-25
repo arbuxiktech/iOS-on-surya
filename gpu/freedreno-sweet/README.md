@@ -1,6 +1,8 @@
-# freedreno on SweetAdreno630 (winsys for the Heartwood kernel ABI)
+# freedreno on Sweet Adreno devices (libdrm stand-in for the Sweet kernel ABI)
 
-Status: `sweet_drm.c` compiles (arm64e) and is **linked into a Mesa 25.0.7 freedreno build** (see `docs/GPU_EAGL.md`, phase E); never run against the GPU yet. Kernel side: `docs/GPU_KERNEL.md`.
+The stand-in is integrated with the Poco F1's Adreno 630 user client and Mesa path (the phone results are in `docs/GPU_EAGL.md`). It now discovers either `SweetAdreno630` or the planned `SweetAdreno618` service and accepts only a ready ABI-1 device reporting GPU ID 618 or 630. `SWEET_GPU_SERVICE=NAME` pins discovery to one service. Mesa falls back to softpipe when no matching ready service exists.
+
+Surya's current XNU patches do not publish an Adreno 618 user client or implement command submission, so the new discovery path is preparation only: on the current Surya kernel the expected userland result is the softpipe fallback. The staged GMU/GX/ZAP bring-up is not a rendering interface. Kernel requirements are tracked in `docs/SURYA_PORT.md`; the existing A630 interface is documented in `docs/GPU_KERNEL.md`.
 
 ## Approach: a libdrm stand-in, no Mesa source change
 
@@ -11,18 +13,19 @@ its fds (dups of `/dev/null`) with `IOConnectMapMemory64(memoryType = BO handle,
 It reports DRM version msm 1.3 on purpose (no softpin: Mesa would pick its own GPU addresses; the kernel assigns them and the backend reads them with `GEM_INFO(GET_IOVA)`
 and patches relocations, which the kernel also supports). Absolute `CLOCK_MONOTONIC` timeouts are converted to the kernel's relative ones. `SWEET_DRM_TRACE=1` logs failing requests.
 
-## Use
+## Build
 
-1. `gpu/freedreno-sweet/build.sh` -> `out/libdrm.2.dylib` (install name `/usr/local/lib/libdrm.2.dylib`).
-2. Configure Mesa with the msm kmd and a libdrm of API >= 2.4.1xx (headers `xf86drm.h`, `drm.h`, `msm_drm.h` from the libdrm source; link the stand-in instead of the real library):
-   `-Dgallium-drivers=freedreno -Dfreedreno-kmds=msm -Dvulkan-drivers=` plus whatever frontend the EAGL bridge uses.
-3. Put the dylib where Mesa's loader finds it; the kernel must be booted with `sweetgpu=8` (`SweetAdreno630` published) and the process allowed to open it (sandbox, see GPU_KERNEL.md risks).
-4. First test without Mesa: `gpu/kernel-test/adreno_uc_test`.
+`ARCH` and `IOS_MIN_VERSION` are configurable. Defaults preserve the existing iOS 18 arm64e build. For the Surya arm64 userspace target, use a separate scratch directory so Meson does not reuse an arm64e build tree:
 
-## Open points (coordinate with ../ios-beryllium-gpu-eagl)
+```sh
+ARCH=arm64 IOS_MIN_VERSION=18.0 GPU_EAGL_WORK=/path/to/surya-eagl gpu/eagl/mesa/build-mesa.sh
+ARCH=arm64 IOS_MIN_VERSION=18.0 GPU_EAGL_WORK=/path/to/surya-eagl MESA_BLD=/path/to/surya-eagl/build-hw gpu/eagl/make-payload.sh research/surya-gles
+```
 
-* Their Mesa 25.0.7 build (scratchpad `gpu-eagl/build-a64e`) is OSMesa/software; a hardware path needs a frontend that can use a pipe driver with our winsys
-  (EGL surfaceless/gbm-less platform or a Gallium frontend of their own) and render targets as IOSurface BOs (`SWEET_GPU_SEL_SURFACE_BO`, then `BO_SYNC`): `fd_bo_from_dmabuf` is
-  `ENOSYS` here, so import has to go through a small Mesa-side hook that calls `SURFACE_BO` and wraps the returned handle/iova (`fd_bo_from_handle`-like).
+The result is an arm64 payload for the same iOS 18 userland with a software fallback. If a future kernel publishes the A618 user client with the `SweetAdreno618` service name and the documented MSM ABI, the stand-in will select it; `SWEET_GPU_SERVICE` can override automatic discovery. The process sandbox must permit the service open.
+
+## Interface limits
+
+* The EAGL Mesa integration supplies an OSMesa GLES frontend and IOSurface BO hooks; the hardware path still requires a kernel user client that supports BO allocation/mapping, command submission, fences, IOSurface import and cache synchronization.
 * `drmSyncobj*` and PRIME are stubs (`-ENOSYS`, `drmGetCap` reports no syncobj); freedreno gallium falls back to its own fence handling.
 * If dyld interposing is not honoured on the PAC-less runtime, patch `fd_bo_map_os_mmap` (`freedreno_bo.c`) to call `IOConnectMapMemory64` directly.

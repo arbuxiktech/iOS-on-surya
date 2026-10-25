@@ -1,11 +1,13 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * libdrm stand-in for Mesa's freedreno "msm" backend on Heartwood (Poco F1, Adreno 630).
+ * libdrm stand-in for Mesa's freedreno "msm" backend on Sweet-family devices
+ * (currently the Poco F1 / Adreno 630 kernel ABI; Surya / Adreno 618 is a
+ * userland-ready target awaiting its XNU command-submission user client).
  *
  * Mesa's src/freedreno/drm/msm backend talks to /dev/dri/renderD* through libdrm (drmCommandWriteRead,
  * drmIoctl, drmGetVersion) and mmap()s buffers at the offset GEM_INFO(GET_OFFSET) returns. On Heartwood the
- * same requests are selectors of the IOKit user client "SweetAdreno630" (xnu/gpu-abi/sweet_adreno_abi.h,
+ * same requests are selectors of an IOKit user client (xnu/gpu-abi/sweet_adreno_abi.h,
  * docs/GPU_KERNEL.md), so this file provides, under the libdrm names, exactly what the backend calls and
  * forwards each request to IOConnectCallStructMethod. No Mesa source change is needed:
  *
@@ -14,7 +16,7 @@
  *   - mmap()/munmap() of such an fd are interposed (dyld __interpose) and turned into
  *     IOConnectMapMemory64 / IOConnectUnmapMemory64 with the BO handle as memoryType (msm "offset" = handle);
  *   - absolute CLOCK_MONOTONIC timeouts of WAIT_FENCE / GEM_CPU_PREP become relative ones (the kernel ABI);
- *   - the reported DRM version is msm 1.3: no softpin, no robustness params, relocations + kernel-assigned
+ *   - the reported DRM version is msm 1.4: softpin with kernel-assigned
  *     iovas (GET_IOVA), submit queues, GMEM_BASE. Newer versions would make Mesa assign GPU addresses itself.
  *
  * Build: gpu/freedreno-sweet/build.sh (arm64e dylib, install name libdrm.2.dylib so a Mesa linked against a
@@ -54,6 +56,8 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static io_connect_t g_conn;
 static dev_t g_null_rdev;
 static int g_trace;
+static uint32_t g_gpu_id;
+static char g_service_name[96];
 
 /*
  * Buffer log (Chlorophyll, GPU fault hunting): when /private/var/tmp/drm-bolog exists at connect time, every BO this
@@ -200,18 +204,47 @@ connect_once(void)
 
 	pthread_mutex_lock(&g_lock);
 	if (g_conn == IO_OBJECT_NULL) {
+		static const char *const services[] = {
+			SWEET_GPU_SERVICE_NAME_A630,
+			SWEET_GPU_SERVICE_NAME_A618,
+		};
+		const char *requested = getenv("SWEET_GPU_SERVICE");
 		struct stat st;
 		if (stat("/dev/null", &st) == 0) {
 			g_null_rdev = st.st_rdev;
 		}
 		g_trace = getenv("SWEET_DRM_TRACE") != NULL;
 		bolog_open();
-		io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(SWEET_GPU_SERVICE_NAME));
-		if (svc != IO_OBJECT_NULL) {
-			if (IOServiceOpen(svc, mach_task_self(), 0, &g_conn) != KERN_SUCCESS) {
-				g_conn = IO_OBJECT_NULL;
-			}
+		for (unsigned i = 0; i < (requested && requested[0] ? 1u : sizeof(services) / sizeof(services[0])); ++i) {
+			const char *name = requested && requested[0] ? requested : services[i];
+			io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(name));
+			if (svc == IO_OBJECT_NULL)
+				continue;
+
+			io_connect_t conn = IO_OBJECT_NULL;
+			kern_return_t kr = IOServiceOpen(svc, mach_task_self(), 0, &conn);
 			IOObjectRelease(svc);
+			if (kr != KERN_SUCCESS || conn == IO_OBJECT_NULL)
+				continue;
+
+			struct sweet_gpu_info info;
+			size_t outsz = sizeof(info);
+			memset(&info, 0, sizeof(info));
+			kr = IOConnectCallStructMethod(conn, SWEET_GPU_SEL_INFO, NULL, 0, &info, &outsz);
+			/* The stand-in only supports the documented A6xx ABI and must not
+			 * expose an unready/stale service to Mesa as a render device. */
+			if (kr != KERN_SUCCESS || outsz < sizeof(info) || info.abi_version != SWEET_GPU_ABI_VERSION ||
+			    !(info.flags & 1u) || (info.gpu_id != 618u && info.gpu_id != 630u)) {
+				IOServiceClose(conn);
+				continue;
+			}
+			g_conn = conn;
+			g_gpu_id = info.gpu_id;
+			snprintf(g_service_name, sizeof(g_service_name), "%s", name);
+			if (getenv("SWEET_GPU_DEBUG"))
+				fprintf(stderr, "Sweet DRM: selected %s (GPU %u, ABI %u.%u)\n", name,
+				    info.gpu_id, info.abi_version, info.abi_minor);
+			break;
 		}
 	}
 	ok = g_conn != IO_OBJECT_NULL;
@@ -418,7 +451,10 @@ drmGetVersion(int fd)
 	v->name_len = 3;
 	v->date = strdup("20261023");
 	v->date_len = 8;
-	v->desc = strdup("Heartwood SweetAdreno630");
+	char desc[160];
+	snprintf(desc, sizeof(desc), "Sweet Adreno %u (%s)", g_gpu_id,
+	    g_service_name[0] ? g_service_name : SWEET_GPU_SERVICE_NAME);
+	v->desc = strdup(desc);
 	v->desc_len = (int)strlen(v->desc);
 	return v;
 }

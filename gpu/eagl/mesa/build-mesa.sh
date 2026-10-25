@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Cross-build Mesa 25.0.7 (official release tag, no third-party code) for iOS arm64e: OSMesa frontend, GLES1/2/3 contexts, gallium
+# Cross-build Mesa 25.0.7 (official release tag, no third-party code) for iOS arm64e or arm64: OSMesa frontend, GLES1/2/3 contexts, gallium
 # softpipe and (GPU_EAGL_HW=1, the default) freedreno/a6xx over the libdrm stand-in gpu/freedreno-sweet. No LLVM, no X11/Wayland/GBM/EGL/GLX.
 # Mesa is patched with bergamota-mesa-25.0.7.patch (OSMesa ES profile, GPU blit into IOSurfaces, iOS fixes for freedreno).
 # The hardware path needs libdrm headers: the official libdrm-2.4.124 tag is cloned (headers only) and a libdrm.pc points at the stand-in.
@@ -11,6 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${GPU_EAGL_WORK:?set GPU_EAGL_WORK}"
 TAG="${MESA_TAG:-mesa-25.0.7}"
 ARCH="${ARCH:-arm64e}"
+IOS_MIN_VERSION="${IOS_MIN_VERSION:-18.0}"
 mkdir -p "$WORK"; cd "$WORK"
 if [ ! -d venv ]; then
   python3 -m venv venv
@@ -38,10 +39,10 @@ pkg-config = '$(command -v pkg-config)'
 
 [built-in options]
 pkg_config_path = ['$WORK/pc']
-c_args = ['-miphoneos-version-min=18.0','-isysroot','$SDK']
-cpp_args = ['-miphoneos-version-min=18.0','-isysroot','$SDK']
-c_link_args = ['-miphoneos-version-min=18.0','-isysroot','$SDK']
-cpp_link_args = ['-miphoneos-version-min=18.0','-isysroot','$SDK']
+c_args = ['-miphoneos-version-min=$IOS_MIN_VERSION','-isysroot','$SDK']
+cpp_args = ['-miphoneos-version-min=$IOS_MIN_VERSION','-isysroot','$SDK']
+c_link_args = ['-miphoneos-version-min=$IOS_MIN_VERSION','-isysroot','$SDK']
+cpp_link_args = ['-miphoneos-version-min=$IOS_MIN_VERSION','-isysroot','$SDK']
 
 [host_machine]
 system = 'darwin'
@@ -56,9 +57,9 @@ EOT
 if [ "$HW" = 1 ]; then
   BLD="$WORK/build-hw"
   [ -d libdrm ] || git clone -q --depth 1 --branch libdrm-2.4.124 https://gitlab.freedesktop.org/mesa/drm.git libdrm
-  "$HERE/../../freedreno-sweet/build.sh" "$WORK/drm-standin-out" >/dev/null
+  ARCH="$ARCH" IOS_MIN_VERSION="$IOS_MIN_VERSION" "$HERE/../../freedreno-sweet/build.sh" "$WORK/drm-standin-out" >/dev/null
   mkdir -p drm-standin pc
-  cp "$WORK/drm-standin-out/libdrm.2.arm64e.dylib" drm-standin/libdrm.2.dylib
+  cp "$WORK/drm-standin-out/libdrm.2.$ARCH.dylib" drm-standin/libdrm.2.dylib
   ln -sf libdrm.2.dylib drm-standin/libdrm.dylib
   cat > pc/libdrm.pc <<EOP
 Name: libdrm

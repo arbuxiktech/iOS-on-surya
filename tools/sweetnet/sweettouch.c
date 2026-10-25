@@ -1,10 +1,10 @@
 /*
  * sweettouch: synthetic touch and buttons over SSH, for testing without hands on the phone.
- *   sweettouch tap X Y                     one finger, points (375x812 space of the iPhone11,8 userland)
- *   sweettouch swipe X1 Y1 X2 Y2 [MS]      drag, default 300 ms
+ *   sweettouch [--size WxH] tap X Y        one finger in display points (default 375x812)
+ *   sweettouch [--size WxH] swipe X1 Y1 X2 Y2 [MS]  drag, default 300 ms
  *   sweettouch home | lock                 Home (menu) / Power (lock) button press
  * Events go into the HID event system (IOHIDEventSystemClientDispatchEvent) like a digitizer's, with the
- * entitlement com.apple.private.hid.client.event-dispatch (touch.entitlements). iOS 18, arm64e + pacstrip.
+ * entitlement com.apple.private.hid.client.event-dispatch (touch.entitlements). iOS 16 arm64 and iOS 18 arm64e builds.
  */
 #include <CoreFoundation/CoreFoundation.h>
 #include <mach/mach_time.h>
@@ -30,8 +30,8 @@ extern void IOHIDEventAppendEvent(IOHIDEventRef parent, IOHIDEventRef child, uin
 extern void IOHIDEventSetIntegerValue(IOHIDEventRef, uint32_t field, int64_t value);
 extern void IOHIDEventSetSenderID(IOHIDEventRef, uint64_t);
 
-#define W 375.0
-#define H 812.0
+static double g_width = 375.0;
+static double g_height = 812.0;
 #define kIOHIDDigitizerTransducerTypeHand 3
 #define kIOHIDDigitizerEventRange 0x1
 #define kIOHIDDigitizerEventTouch 0x2
@@ -47,7 +47,7 @@ static void finger(double x, double y, bool touch, uint32_t mask)
 	IOHIDEventRef hand = IOHIDEventCreateDigitizerEvent(kCFAllocatorDefault, t, kIOHIDDigitizerTransducerTypeHand, 0, 0,
 	    mask, 0, 0, 0, 0, 0, 0, touch, touch, 0);
 	IOHIDEventSetIntegerValue(hand, kIOHIDEventFieldDigitizerIsDisplayIntegrated, 1);
-	IOHIDEventRef f = IOHIDEventCreateDigitizerFingerEvent(kCFAllocatorDefault, t, 1, 2, mask, x / W, y / H, 0,
+	IOHIDEventRef f = IOHIDEventCreateDigitizerFingerEvent(kCFAllocatorDefault, t, 1, 2, mask, x / g_width, y / g_height, 0,
 	    touch ? 1.0 : 0, 0, touch, touch, 0);
 	IOHIDEventAppendEvent(hand, f, 0);
 	IOHIDEventSetSenderID(hand, SENDER);
@@ -67,33 +67,66 @@ static void button(uint32_t page, uint32_t usage)
 	}
 }
 
+static int
+parse_size(const char *s)
+{
+	if (!s || !*s)
+		return 0;
+	char *end = NULL;
+	long w = strtol(s, &end, 10);
+	if (end == s || (*end != 'x' && *end != 'X') || w < 1 || w > 16384)
+		return 0;
+	const char *hstart = end + 1;
+	long h = strtol(hstart, &end, 10);
+	if (end == hstart || *end || h < 1 || h > 16384)
+		return 0;
+	g_width = (double)w;
+	g_height = (double)h;
+	return 1;
+}
+
+static void
+usage(const char *name)
+{
+	fprintf(stderr, "usage: %s [--size WxH] tap X Y | swipe X1 Y1 X2 Y2 [MS] | home | lock\n", name);
+	fprintf(stderr, "       coordinates are display points; default size is 375x812, Surya ADT default is 360x800\n");
+}
+
 int main(int argc, char **argv)
 {
+	int arg = 1;
+	if (arg < argc && !strcmp(argv[arg], "--size")) {
+		if (arg + 1 >= argc || !parse_size(argv[arg + 1])) {
+			usage(argv[0]);
+			return 2;
+		}
+		arg += 2;
+	}
 	cli = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
 	if (!cli) {
 		fprintf(stderr, "sweettouch: no HID event system client\n");
 		return 1;
 	}
-	if (argc == 4 && !strcmp(argv[1], "tap")) {
-		double x = atof(argv[2]), y = atof(argv[3]);
+	if (argc - arg == 3 && !strcmp(argv[arg], "tap")) {
+		double x = atof(argv[arg + 1]), y = atof(argv[arg + 2]);
 		finger(x, y, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 		usleep(60000);
 		finger(x, y, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
-	} else if ((argc == 6 || argc == 7) && !strcmp(argv[1], "swipe")) {
-		double x1 = atof(argv[2]), y1 = atof(argv[3]), x2 = atof(argv[4]), y2 = atof(argv[5]);
-		int ms = argc == 7 ? atoi(argv[6]) : 300, steps = ms / 8 > 2 ? ms / 8 : 2;
+	} else if ((argc - arg == 5 || argc - arg == 6) && !strcmp(argv[arg], "swipe")) {
+		double x1 = atof(argv[arg + 1]), y1 = atof(argv[arg + 2]), x2 = atof(argv[arg + 3]), y2 = atof(argv[arg + 4]);
+		int ms = argc - arg == 6 ? atoi(argv[arg + 5]) : 300, steps = ms / 8 > 2 ? ms / 8 : 2;
 		finger(x1, y1, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 		for (int i = 1; i <= steps; i++) {
 			usleep(8000);
 			finger(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, true, kIOHIDDigitizerEventPosition);
 		}
 		finger(x2, y2, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
-	} else if (argc == 2 && !strcmp(argv[1], "home")) {
+	} else if (argc - arg == 1 && !strcmp(argv[arg], "home")) {
 		button(0x0c, 0x40);     /* consumer page, menu */
-	} else if (argc == 2 && !strcmp(argv[1], "lock")) {
+	} else if (argc - arg == 1 && !strcmp(argv[arg], "lock")) {
 		button(0x0c, 0x30);     /* consumer page, power */
 	} else {
-		fprintf(stderr, "usage: sweettouch tap X Y | swipe X1 Y1 X2 Y2 [MS] | home | lock   (points, 375x812)\n");
+		usage(argv[0]);
 		return 2;
 	}
 	usleep(50000);
