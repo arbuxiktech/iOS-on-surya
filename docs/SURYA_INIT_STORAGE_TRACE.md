@@ -40,3 +40,17 @@ without `read done` points inside the UFS command; `BT buffer read begin`
 without a UFS request may instead indicate buffer-cache/block-mapping work.
 Completed reads followed by a search stall require examining that search and
 its data. No new root flash is required for this diagnostic.
+
+Build commit `950f66d` passed Actions run
+[40242288028](https://github.com/arbuxiktech/iOS-on-surya/actions/runs/40242288028).
+The compiled diagnostic strings and boot v2 header were verified; unpacking
+reproduces the loader, DTB and payload byte-for-byte, including the intended
+command line. This is a diagnostic build, with no hardware result yet.
+
+From the bootloader, RAM-boot the locally generated image:
+
+```powershell
+fastboot boot "C:\Users\Arbuxik\Documents\ios-26\research\ios18\enxerto-boot-ios18full-surya-init-storage-trace.img"
+```
+
+Image SHA-256: `ac4b36cd7b60af5e28e86b7080ef3368d9719bacc75d59666bfbd2bd6f6e8639`.
