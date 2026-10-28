@@ -1,0 +1,79 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index b82c31e..5908994 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -689,6 +689,26 @@ sweet_ufs_init_trace(const char *stage, uint64_t off, uint32_t count, int result
+ 	sweet_init_exec_trace(label, result);
+ }
+ 
++
++/* Observe the source without modifying it or the original memcpy. */
++static void
++sweet_ufs_copy_trace(const char *src, char *dst, uint32_t count)
++{
++	char label[96];
++	uint32_t hash = 2166136261U;
++	if (!sweet_init_trace_enabled()) {
++		return;
++	}
++	snprintf(label, sizeof(label), "UFS copy dst=0x%llx src=0x%llx n=%u",
++	    (unsigned long long)(uintptr_t)dst, (unsigned long long)(uintptr_t)src, count);
++	sweet_init_exec_trace(label, 0);
++	for (uint32_t i = 0; i < MIN(count, 4096U); i++) {
++		hash = (hash ^ (uint8_t)src[i]) * 16777619U;
++	}
++	snprintf(label, sizeof(label), "UFS copy source fnv=%08x", hash);
++	sweet_init_exec_trace(label, 0);
++}
++
+ static void
+ sweet_ufs_strategy(buf_t bp)
+ {
+@@ -740,7 +760,10 @@ sweet_ufs_strategy(buf_t bp)
+ 			error = ufs_read_blocks(su.first_block + lba, blocks);
+ 			sweet_ufs_init_trace("read done", lba * UFS_BLOCK, blocks * UFS_BLOCK, error);
+ 			if (!error) {
++				sweet_ufs_init_trace("copy begin", pos, want, 0);
++				sweet_ufs_copy_trace((const char *)bounce + skip, vaddr + done, want);
+ 				memcpy(vaddr + done, (const char *)bounce + skip, want);
++				sweet_ufs_init_trace("copy done", pos, want, 0);
+ 			}
+ 		} else {
+ 			/* Partial device blocks at either end: read, merge, write back. */
+@@ -757,12 +780,17 @@ sweet_ufs_strategy(buf_t bp)
+ 			break;
+ 		}
+ 		done += want;
++		if (rd) sweet_ufs_init_trace("residual begin", off, count - done, 0);
+ 		buf_setresid(bp, count - done);
++		if (rd) sweet_ufs_init_trace("residual done", off, count - done, 0);
+ 	}
++	if (rd) sweet_ufs_init_trace("unlock begin", off, count, error);
+ 	lck_mtx_unlock(&sweet_ufs_lock);
++	if (rd) sweet_ufs_init_trace("unlock done", off, count, error);
+ 	if (rd && !error && sweet_init_trace_enabled()) {
+ 		uint32_t hash = 2166136261U;
+ 		char label[96];
++		sweet_ufs_init_trace("checksum begin", off, count, 0);
+ 		for (uint32_t i = 0; i < MIN(count, 4096U); i++) {
+ 			hash = (hash ^ (uint8_t)vaddr[i]) * 16777619U;
+ 		}
+@@ -770,7 +798,9 @@ sweet_ufs_strategy(buf_t bp)
+ 		    (unsigned long long)off, count, hash);
+ 		sweet_init_exec_trace(label, 0);
+ 	}
++	if (rd) sweet_ufs_init_trace("unmap begin", off, count, error);
+ 	buf_unmap(bp);
++	if (rd) sweet_ufs_init_trace("unmap done", off, count, error);
+ 
+ done:
+ 	if (error) {
+@@ -783,6 +813,8 @@ done:
+ 	}
+ 	if (rd) sweet_ufs_init_trace("complete", off, count, error);
+ 	buf_biodone(bp);
++	/* bp may have been released by completion; use only saved scalars here. */
++	if (rd) sweet_ufs_init_trace("biodone returned", off, count, error);
+ }
+ 
+ static int
