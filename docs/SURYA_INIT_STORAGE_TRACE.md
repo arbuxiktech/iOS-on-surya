@@ -45,7 +45,7 @@ Build commit `950f66d` passed Actions run
 [40242288028](https://github.com/arbuxiktech/iOS-on-surya/actions/runs/40242288028).
 The compiled diagnostic strings and boot v2 header were verified; unpacking
 reproduces the loader, DTB and payload byte-for-byte, including the intended
-command line. This is a diagnostic build, with no hardware result yet.
+command line.
 
 From the bootloader, RAM-boot the locally generated image:
 
@@ -54,3 +54,18 @@ fastboot boot "C:\Users\Arbuxik\Documents\ios-26\research\ios18\enxerto-boot-ios
 ```
 
 Image SHA-256: `ac4b36cd7b60af5e28e86b7080ef3368d9719bacc75d59666bfbd2bd6f6e8639`.
+
+Hardware photos on 2026-10-28 show the expected index traversal. Nodes 23910
+and 25350 complete with matching checksums. At 265 seconds, the final numbered
+checkpoint is still `UFS read done off=0x3a8a20000 n=8192 rc=0` for leaf 25234.
+Later SMP samples show init with no user PC/LR/SP. Thus the leaf command reports
+success, but its data checksum and strategy completion are not reached. The
+wait after that checkpoint could be in the copy, bookkeeping, mutex release,
+checksum, or the diagnostic call itself; the photo does not distinguish them.
+
+Patch 0263 brackets the original memcpy, residual update, mutex release,
+destination checksum and buffer unmap. It also logs source/destination virtual
+addresses and a first-4KiB source checksum before copying. Completion return
+uses saved scalar values, never dereferences a possibly released buffer. The
+copy implementation and locking order remain unchanged. If the source checksum
+appears for leaf 25234 at the expected offset, compare it with `5d3126db`.
